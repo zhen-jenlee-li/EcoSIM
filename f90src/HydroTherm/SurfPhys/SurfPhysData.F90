@@ -10,11 +10,11 @@ implicit none
   real(r8),allocatable ::  XVLMobileWatMicP(:,:)                         !
   real(r8),allocatable ::  XVLiceMicP_col(:,:)                           !
   real(r8),allocatable ::  VLPoreLitR_col(:,:)                        !
-
+  real(r8),allocatable ::  m3OM_col(:,:)                           !surface litter OM [m3 d-2]
   real(r8),allocatable ::  ResistAreodynOverLitr_col(:,:)          !aerodynamic resistance over litter [m]
   real(r8),allocatable ::  AScaledCdWOverSoil_col(:,:)             !area scaled conductance for latent heat flux over exposed soil [m^2 h]
   real(r8),allocatable ::  AScaledCdWOverLitr_col(:,:)             !area scaled conductance for latent heat flux over litter [m^2 h]
-  real(r8),allocatable ::  RARG(:,:)                               !
+  real(r8),allocatable ::  RawIsoTLitr2ATM_col(:,:)                           !
   real(r8),allocatable ::  AScaledCdHOverLitr_col(:,:)             !area scaled conductance for sensible heat flux over litter [MJ h /(m K)]
   real(r8),allocatable ::  VapDiffusResistanceLitR(:,:)            !
   real(r8),allocatable ::  WatFLo2LitrM_col(:,:)                   !
@@ -36,10 +36,13 @@ implicit none
   real(r8),allocatable :: TEvapXAir2Toplay_col(:,:)
   real(r8),allocatable :: TEvapXAir2LitR_col(:,:)
   real(r8),allocatable :: TEvapXAir2Snow_col(:,:)
-
+  real(r8),allocatable :: CdLitRHSens_col(:,:)            !conductance of sensible heat [MJ/K]
   real(r8),allocatable :: watflw(:,:)
   real(r8),allocatable :: waticefl(:,:)
-
+  real(r8),allocatable :: CdSoiHSens_col(:,:)     ! scaled conductance for sensible heat [MJ/K]
+  real(r8),allocatable :: HeatSnow2LitrM_col(:,:) !heat flux from snow to litter [MJ/d-2]
+  real(r8),allocatable :: HeatAir2LitrM_col(:,:)  !heat flux from air to litter [MJ/d-2]
+  real(r8),allocatable :: HeatSoil2LitrM_col(:,:) !heat flux from soil to litter [MJ/d-2]
   public :: InitSurfPhysData,DestructSurfPhysData
 
   contains
@@ -48,40 +51,42 @@ implicit none
   subroutine InitSurfPhysData  
   implicit none
 
+  allocate(HeatSoil2LitrM_col(JY,JX)); HeatSoil2LitrM_col=0._r8
   allocate(watflw(JY, JX))
   allocate(waticefl(JY,JX))
-
+  allocate(m3OM_col(JY,JX))
   allocate(XVLMobileWaterLitR_col(JY,JX));       XVLMobileWaterLitR_col=0._r8
   allocate(XVLMobileWatMicP(JY,JX));       XVLMobileWatMicP=0._r8
   allocate(XVLiceMicP_col(JY,JX));       XVLiceMicP_col=0._r8
   allocate(VLPoreLitR_col(JY,JX));      VLPoreLitR_col=0._r8
-
+  allocate(CdLitRHSens_col(JY,JX)); CdLitRHSens_col=0._r8
   allocate(ResistAreodynOverLitr_col(JY,JX));        ResistAreodynOverLitr_col=0._r8
   allocate(AScaledCdWOverSoil_col(JY,JX));       AScaledCdWOverSoil_col=0._r8
   allocate(AScaledCdWOverLitr_col(JY,JX));       AScaledCdWOverLitr_col=0._r8
-  allocate(RARG(JY,JX));        RARG=0._r8
+  allocate(RawIsoTLitr2ATM_col(JY,JX));        RawIsoTLitr2ATM_col=0._r8
   allocate(AScaledCdHOverLitr_col(JY,JX));       AScaledCdHOverLitr_col=0._r8
   allocate(VapDiffusResistanceLitR(JY,JX));         VapDiffusResistanceLitR=0._r8  
   allocate(WatFLo2LitrM_col(JY,JX));       WatFLo2LitrM_col=0._r8
   allocate(HeatFLoByWat2LitRM_col(JY,JX));      HeatFLoByWat2LitRM_col=0._r8  
   allocate(AScaledCdHOverSoil_col(JY,JX));       AScaledCdHOverSoil_col=0._r8  
 !  allocate(VapXAir2TopLay(JY,JX));       VapXAir2TopLay=0._r8  
-allocate(LitrIceFlxThaw_col(JY,JX));       LitrIceFlxThaw_col         = 0._r8
-allocate(ResistBndlSurf_col(JY,JX));        ResistBndlSurf_col                            = 0._r8
-allocate(LitrIceHeatFlxFrez_col(JY,JX));       LitrIceHeatFlxFrez_col = 0._r8
-allocate(FracEffAsLitR_col(JY,JX));       FracEffAsLitR_col                           = 0._r8
-allocate(Rain2SoiMacP1_col(JY,JX));        Rain2SoiMacP1_col          = 0._r8
-allocate(PRECM_col(JY,JX));       PRECM_col                   = 0._r8
-allocate(Rain2SoiMicP1_col(JY,JX));        Rain2SoiMicP1_col          = 0._r8
-allocate(RainHeat2SoilP1_col(JY,JX));      RainHeat2SoilP1_col    = 0._r8
-allocate(RainHeat2LitR1_col(JY,JX));      RainHeat2LitR1_col          = 0._r8
-allocate(Rain2LitR1_col(JY,JX));        Rain2LitR1_col                = 0._r8
-allocate(FracAsExposedSoil_col(JY,JX));       FracAsExposedSoil_col                           = 0._r8
-allocate(TEvapXAir2Toplay_col(JY,JX)); TEvapXAir2Toplay_col   = 0._r8
-allocate(TEvapXAir2LitR_col(JY,JX)); TEvapXAir2LitR_col       = 0._r8
-allocate(TEvapXAir2Snow_col(JY,JX)); TEvapXAir2Snow_col       = 0._r8
-!        allocate(HCNDLitr_col(JY,JX));       HCNDLitr_col    = 0._r8
-
+  allocate(LitrIceFlxThaw_col(JY,JX));       LitrIceFlxThaw_col         = 0._r8
+  allocate(ResistBndlSurf_col(JY,JX));        ResistBndlSurf_col                            = 0._r8
+  allocate(LitrIceHeatFlxFrez_col(JY,JX));       LitrIceHeatFlxFrez_col = 0._r8
+  allocate(FracEffAsLitR_col(JY,JX));       FracEffAsLitR_col                           = 0._r8
+  allocate(Rain2SoiMacP1_col(JY,JX));        Rain2SoiMacP1_col          = 0._r8
+  allocate(PRECM_col(JY,JX));       PRECM_col                   = 0._r8
+  allocate(Rain2SoiMicP1_col(JY,JX));        Rain2SoiMicP1_col          = 0._r8
+  allocate(RainHeat2SoilP1_col(JY,JX));      RainHeat2SoilP1_col    = 0._r8
+  allocate(RainHeat2LitR1_col(JY,JX));      RainHeat2LitR1_col          = 0._r8
+  allocate(Rain2LitR1_col(JY,JX));        Rain2LitR1_col                = 0._r8
+  allocate(FracAsExposedSoil_col(JY,JX));       FracAsExposedSoil_col                           = 0._r8
+  allocate(TEvapXAir2Toplay_col(JY,JX)); TEvapXAir2Toplay_col   = 0._r8
+  allocate(TEvapXAir2LitR_col(JY,JX)); TEvapXAir2LitR_col       = 0._r8
+  allocate(TEvapXAir2Snow_col(JY,JX)); TEvapXAir2Snow_col       = 0._r8
+  allocate(HeatSnow2LitrM_col(JY,JX)); HeatSnow2LitrM_col=0._r8
+  allocate(HeatAir2LitrM_col(JY,JX)); HeatAir2LitrM_col=0._r8
+  allocate(CdSoiHSens_col(JY,JX)); CdSoiHSens_col=0._r8
   end subroutine InitSurfPhysData  
 !------------------------------------------------------------------------------------------  
 
@@ -89,6 +94,12 @@ allocate(TEvapXAir2Snow_col(JY,JX)); TEvapXAir2Snow_col       = 0._r8
   use abortutils, only : destroy
   implicit none
 
+  call destroy(HeatSoil2LitrM_col)
+  call destroy(HeatAir2LitrM_col)
+  call destroy(HeatSnow2LitrM_col)
+  call destroy(CdSoiHSens_col)
+  call destroy(CdLitRHSens_col)
+  call destroy(m3OM_col)
   call destroy(TEvapXAir2Toplay_col)
   call destroy(TEvapXAir2LitR_col) 
   call destroy(TEvapXAir2Snow_col) 
@@ -99,7 +110,7 @@ allocate(TEvapXAir2Snow_col(JY,JX)); TEvapXAir2Snow_col       = 0._r8
   call destroy(ResistAreodynOverLitr_col)
   call destroy(AScaledCdWOverSoil_col)
   call destroy(AScaledCdWOverLitr_col)
-  call destroy(RARG)
+  call destroy(RawIsoTLitr2ATM_col)
   call destroy(AScaledCdHOverLitr_col)
   call destroy(VapDiffusResistanceLitR)  
   call destroy(WatFLo2LitrM_col)

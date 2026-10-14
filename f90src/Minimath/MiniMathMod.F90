@@ -4,7 +4,7 @@ module minimathmod
 ! Some small subroutines/function to do safe math.
 
   use data_kind_mod, only: r8 => DAT_KIND_R8
-  use fileUtil,      only: iulog
+  use abortutils,    only: iulog
   use EcoSimConst
 
   implicit none
@@ -16,8 +16,8 @@ module minimathmod
   public :: p_adb
   public :: isclose         !test if two values a and b are close in magnitude
   public :: vapsat, vapsat0
-  public :: isLeap
-  public :: isnan
+  public :: isLeap,iisleap
+  
   public :: AZMAX1,AZMIN1,AZMAX1t,AZMAX1d,AZMIN1d
   public :: GetMolAirPerm3
   public :: fSiLU
@@ -25,12 +25,18 @@ module minimathmod
   public :: fixEXConsumpFlux
   public :: yearday,isletter
   public :: dssign
+  public :: symmetric_flux_limiter
   public :: flux_mass_limiter
   public :: AZERO,AZERO1  
   public :: SubstrateLimit
   public :: real_truncate
   public :: pMod
-  public :: SubstrateDribbling
+  public :: isAinsideBC,isABetweenBC,isALeftinBC,isARightinBC
+  public :: sfexp
+  public :: Viscosity_H2O
+  public :: VapMass2KPa
+  public :: attn_func
+  public :: SubstrateDribbling  
   interface SubstrateDribbling
     module procedure SubstrateDribbling_vec
     module procedure SubstrateDribbling_scal
@@ -38,6 +44,7 @@ module minimathmod
   interface AZMAX1
     module procedure AZMAX1_s
     module procedure AZMAX1_d
+    module procedure AZMAX1_v
   end interface AZMAX1
 
   interface AZMIN1
@@ -48,18 +55,10 @@ module minimathmod
   public :: get_flux_scalar
   public :: addone
   public :: RichardsonNumber
-  real(r8), parameter :: tiny_val=1.e-14_r8
+  real(r8), parameter :: tiny_val=1.e-12_r8
 
   contains
 
-   pure function isnan(a)result(ans)
-   implicit none
-   real(r8), intent(in) :: a
-   logical :: ans
-
-   ans=(a/=a)
-   return
-   end function isnan
 !------------------------------------------------------------------------------------------
 
    pure function safe_adb(a,b)result(ans)
@@ -71,9 +70,10 @@ module minimathmod
    real(r8) :: ans
 
    if(abs(b)<tiny_val)then
-     ans=tiny_val
+     !assume complete dissipation
+     ans=0._R8
    else
-     ans = a/b
+     ans = AZERO(a/b)
    endif
 
    return
@@ -104,6 +104,38 @@ module minimathmod
     ans=1._r8
   endif
   end function dssign
+!------------------------------------------------------------------------------------------
+  pure function isAinsideBC(a,b,c)result(ans)
+  implicit none
+  real(r8), intent(in) :: a,b,C
+  logical :: ans
+
+  ans = a>b .and. a < c
+  end function isAinsideBC
+!------------------------------------------------------------------------------------------
+  pure function isALeftinBC(a,b,c)result(ans)
+  implicit none
+  real(r8), intent(in) :: a,b,C
+  logical :: ans
+
+  ans = a>=b .and. a < c
+  end function isALeftinBC
+!------------------------------------------------------------------------------------------
+  pure function isARightinBC(a,b,c)result(ans)
+  implicit none
+  real(r8), intent(in) :: a,b,C
+  logical :: ans
+
+  ans = a>b .and. a <= c
+  end function isARightinBC
+!------------------------------------------------------------------------------------------
+  pure function isABetweenBC(a,b,c)result(ans)
+  implicit none
+  real(r8), intent(in) :: a,b,C
+  logical :: ans
+
+  ans = a>=b .and. a <= c
+  end function isABetweenBC
 
 !------------------------------------------------------------------------------------------
 
@@ -132,6 +164,19 @@ module minimathmod
   real(r8) :: ans  !(kPa)
   ans=0.61_r8*EXP(5360.0_r8*(3.661E-03_r8-1.0_r8/tempK))
   end function vapsat0
+
+!------------------------------------------------------------------------------------------
+  pure function attn_func(tau)result(attn)
+  implicit none
+  real(r8), intent(in) :: tau
+  real(r8) :: attn
+
+  if (tau < 1.e-6_r8) then
+    attn = 1._r8 - 0.5_r8*tau + tau*tau/6._r8
+  else
+    attn = (1._r8-sfexp(-tau))/tau
+  endif  
+  end function attn_func
 
 !------------------------------------------------------------------------------------------
 
@@ -201,7 +246,12 @@ module minimathmod
   integer, intent(in) :: a,B
   integer :: C
   
-  c=mod(a,b)
+  if(a<0)then
+    c=mod(a+b,b)
+  else
+    c=mod(a,b)
+  endif
+
   if(c==0 .and. a/=0)c=b
   end function pMOD
 !------------------------------------------------------------------------------------------
@@ -226,7 +276,7 @@ module minimathmod
   real(r8), intent(in) :: val
   real(r8), optional, intent(in) :: tiny1
   real(r8) :: ans
-  real(r8), parameter :: tiny_val1=1.e-11_r8
+  real(r8), parameter :: tiny_val1=1.e-10_r8
   real(r8) :: tiny  
   if(present(tiny1))then
     tiny=tiny1
@@ -282,6 +332,21 @@ module minimathmod
   ans=AMAX1(0.0_r8,val1,val2)
 
   end function AZMAX1_d
+!------------------------------------------------------------------------------------------
+
+  pure function AZMAX1_v(val1)result(ans)
+  implicit none
+  real(r8), dimension(:), intent(in) :: val1
+  
+  real(r8) :: ans(size(val1))
+  integer :: jj, sz
+  sz = size(val1)
+  DO jj=1,sz
+    ans(jj)=AMAX1(0.0_r8,val1(jj))
+  enddo
+
+  end function AZMAX1_v
+
 
 !------------------------------------------------------------------------------------------
 
@@ -353,9 +418,10 @@ module minimathmod
   pure function RichardsonNumber(RIB,TK1,TK2)result(ans)
   implicit none
   real(r8), intent(in) :: RIB  !isothermal RI
-  real(r8), intent(in) :: TK1, TK2
+  real(r8), intent(in) :: TK1  !target temperature
+  real(r8), intent(in) :: TK2  !reference temperature
 
-  real(r8) :: ans
+  real(r8) :: ans !>0 stable, < 0 unstable
 
   ans = AMAX1(-0.3_r8,AMIN1(0.075_r8,RIB*(TK1-TK2)))
   
@@ -483,6 +549,18 @@ module minimathmod
 
 ! ----------------------------------------------------------------------
 
+  pure elemental function symmetric_flux_limiter(flux,reference_flux)result(ans)
+  ! Bound flux to [-abs(reference_flux),abs(reference_flux)]. Both arguments
+  ! have the same units. The reference sign does not change the bounds;
+  ! the flux retains its direction. Donor mass availability is handled separately.
+  implicit none
+  real(r8), intent(in) :: flux,reference_flux
+  real(r8) :: ans
+
+  ans=MIN(ABS(reference_flux),MAX(-ABS(reference_flux),flux))
+  end function symmetric_flux_limiter
+!------------------------------------------------------------------------------------------
+
   function flux_mass_limiter(flux,massa,massb)result(ans)
   !
   !limit flux by massa and massb 
@@ -567,7 +645,10 @@ module minimathmod
   end subroutine SubstrateDribbling_scal
 !------------------------------------------------------------------------
   subroutine SubstrateDribbling_vec(n1,n2,demand_flux,dribbling_flx,y)
-
+  
+  !
+  !computing the dribbling flux to meet the non-negative requirement of 
+  !variable y
   implicit none
   integer, intent(in) :: n1,n2
   real(r8), intent(in) :: demand_flux(n1:n2)  !consumption/demand flux
@@ -600,4 +681,47 @@ module minimathmod
 
   end function real_truncate
 
+!------------------------------------------------------------------------
+  pure function Viscosity_H2O(TEMPC)result(viscwl)
+  implicit none
+  real(r8), intent(in) :: TEMPC  !temperautre [oC]
+  real(r8), parameter :: VISCW=1.0E-06_r8    !water viscosity at oC, [Mg m-1 s]
+  
+  real(r8) :: viscwl
+  
+  VISCWL    = VISCW*EXP(0.533_r8-0.0267_r8*TEMPC)
+
+  end function Viscosity_H2O
+!------------------------------------------------------------------------
+
+  pure function sfexp(a)result(ans)
+  !
+  !do filtered exponential function calculation
+  implicit none
+  real(r8), intent(in) :: a
+  real(r8) :: ans
+
+  if(a>35._r8)then
+    ans=1.e15_r8 !return a large number
+  elseif(a<-35._r8)then
+    ans=1.e-15_r8
+  else
+    ans=exp(a)
+  endif
+  end function sfexp
+!------------------------------------------------------------------------
+  pure function VapMass2KPa(VP,TA,fwd)result(ans)
+  implicit none
+  real(r8), intent(in) :: VP ! pressure, trune kPa, false  m3/m3, 
+  real(r8), intent(in) :: TA ! temperature K
+  logical, intent(in) :: fwd !true, does kPa -> m3/m3; false, m3/m3 -> kPa
+  real(r8) :: ans !true m3/m3, false kPa
+
+  if(fwd)then
+    ans =VP*2.173E-03_r8/TA
+  else
+    ans=VP*TA/2.173E-03_r8  
+  endif
+
+  end function VapMass2KPa
 end module minimathmod

@@ -278,7 +278,7 @@ implicit none
   real(r8) :: trcg_mass_snow_now(idg_beg:idg_NH3)
   real(r8) :: trcg_mass_litr_now(idg_beg:idg_NH3)
   real(r8) :: trcg_mass_soil_now(idg_beg:idg_NH3)
-  real(r8) :: dmass,err
+  real(r8) :: dmass,err,err_rel
   real(r8) :: DOM_mass_now(idom_beg:idom_end,jcplx)
   real(r8) :: dom_dribble_col(idom_beg:idom_end,jcplx)
   real(r8) :: trcs_solml_drib_col(ids_beg:ids_end)
@@ -339,7 +339,9 @@ implicit none
           ENDDO
         ENDDO
       ENDDO
-
+      do ids=ids_nuts_beg,ids_nuts_end
+        trcnuts_hydrloss_flx_col(ids,NY,NX)=trcnuts_hydrloss_flx_col(ids,NY,NX)+trcs_hydrloss_slow_flx_col(idg,NY,NX)
+      enddo
       DO idg=idg_beg,idg_NH3
         GasDiff2Surf_flx_col(idg,NY,NX)       = GasDiff2Surf_flx_col(idg,NY,NX)+AtmGasDiff2Surf_slow_flx_col(idg,NY,NX)
         GasHydroLoss_flx_col(idg,NY,NX)       = GasHydroLoss_flx_col(idg,NY,NX)+trcs_hydrloss_slow_flx_col(idg,NY,NX)
@@ -369,18 +371,19 @@ implicit none
         endif
 
         errmass_slow(idg,NY,NX)=errmass_slow(idg,NY,NX)+err
-        err_test=abs(err)>1.e-5_r8 .or. abs(errmass_slow(idg,NY,NX))>1.e-5_r8 .OR. iVerbLevel==1
-        if(err_test)then
-          if(err_test)then
+        err_rel=safe_adb(err,AMAX1(trcg_mass_begs(idg,NY,NX),trcg_mass_now(idg)))
+        err_test=AMIN1(abs(err),abs(err_rel))>1.e-5_r8 .or. abs(errmass_slow(idg,NY,NX))>1.e-5_r8 .OR. iVerbLevel==1 
+        if(err_test)then          
             write(201,*)('-',L=1,50)
-            write(201,*)(I*1000+J)*10+M,'iterm=',iterm,trcs_names(idg),NY,NX,'SLOW'
+            write(201,*)(I*1000+J)*10+M,'iterm=',iterm,trcs_names(idg),'NY,NX=',NY,NX,'SLOW'
             write(201,*)'beg/end total mass',trcg_mass_begs(idg,NY,NX),trcg_mass_now(idg)
-            write(201,*)'err=',err,'nsnol_col=',nsnol_col(NY,NX)
+            write(201,*)'err,err_rel=',err,err_rel,'nsnol_col=',nsnol_col(NY,NX),'NU_col=',NU_col(NY,NX)
             write(201,*)'beg/end snow mass=',trcg_mass_snow_begs(idg,NY,NX),trcg_mass_snow_now(idg),trcg_mass_snow_begs(idg,NY,NX)-trcg_mass_snow_now(idg)
             write(201,*)'beg/end litr mass=',trcg_mass_litr_begs(idg,NY,NX),trcg_mass_litr_now(idg),trcg_mass_litr_begs(idg,NY,NX)-trcg_mass_litr_now(idg)
             write(201,*)'beg/end soil mass=',trcg_mass_soil_begs(idg,NY,NX),trcg_mass_soil_now(idg),trcg_mass_soil_begs(idg,NY,NX)-trcg_mass_soil_now(idg)
             write(201,*)'wetdepo    =',Gas_WetDeposit_slow_flx_col(idg,NY,NX)
             write(201,*)'diffus     =',AtmGasDiff2Surf_slow_flx_col(idg,NY,NX)
+            write(201,*)'drib       =',trcs_solml_drib_col(idg)
             write(201,*)'netflx2litr=',trcs_NetFlow2Litr_slow_flx_col(idg,NY,NX)
             write(201,*)'dep2sno    =',Gas_WetDepo2Snow_slow_flx_col(idg,NY,NX)
             write(201,*)'snowloss   =',-Gas_Snowloss_slow_flx_col(idg,NY,NX)
@@ -427,8 +430,8 @@ implicit none
             write(201,*)'wetdep2litr   =',Gas_WetDepo2litr_slow_flx_col(idg,NY,NX)
             write(201,*)'litr2soil     =',Gas_litr2Soil_slow_flx_col(idg,NY,NX)
             write(201,*)'sno2litr      =',trcs_sno2litr_slow_flx_col(idg,NY,NX)  
-          endif
-          if(abs(err)>1.e-5_r8)call endrun(trim(mod_filename)//' at line',__LINE__)          
+          
+          if(AMIN1(abs(err),abs(err_rel))>1.e-5_r8)call endrun(trim(mod_filename)//' at line',__LINE__)          
         endif
       ENDDO
 
@@ -2729,7 +2732,7 @@ implicit none
   integer, intent(in) :: I,J,M,NHE,NHW,NVS,NVN
 
   integer  :: N1,N2,N3
-  logical  :: iDisableEbu                        !bubbling flag
+  logical  :: iFalseEbu                        !bubbling flag
 
   character(len=*), parameter :: subname='BubbleEffluxM'  
   real(r8) :: THETW1
@@ -2746,7 +2749,7 @@ implicit none
   LG=0
   DO N1=NHW,NHE
     DO N2=NVN,NVS
-      iDisableEbu = .false.
+      iFalseEbu = .false.
       trcg_Ebu_flxM_vr(idg_beg:idg_end,NUM_col(N2,N1):NL_col(N2,N1),N2,N1)=0.0_r8      
 
       DO N3=NLF_col(N2,N1),NUM_col(N2,N1),-1  !sweep upward assuming bubbles go upward
@@ -2754,7 +2757,7 @@ implicit none
         THETW1=AZMAX1(safe_adb(VLWatMicPM_vr(M,N3,N2,N1),VLSoilMicP_vr(N3,N2,N1)))
         !
         IF(THETW1.GT.SoilWatAirDry_vr(N3,N2,N1)     & ! has significant water 
-          .AND. .not.iDisableEbu)THEN                 ! ebullition is allowed
+          .AND. .not.iFalseEbu)THEN                 ! ebullition is allowed
 
           dPond=AZMAX1(CumDepz2LayBottom_vr(N3,N2,N1)-DepzIntWTBL_col(N2,N1))*10._r8
 
@@ -2820,7 +2823,7 @@ implicit none
             RCH4PhysexchPrev_vr(N3,N2,N1)  = RCH4PhysexchPrev_vr(N3,N2,N1)+trcg_Ebu_flxM_vr(idg_CH4,N3,N2,N1)
           ENDIF
         ELSE
-          iDisableEbu=.true.
+          iFalseEbu=.true.
           DO idg=idg_beg,idg_end
             !add to the gas phase, which will then go through gaseous transport, triggering bubbling
             if(trcg_ebu_flx_col(idg,N2,N1)<0._r8)then

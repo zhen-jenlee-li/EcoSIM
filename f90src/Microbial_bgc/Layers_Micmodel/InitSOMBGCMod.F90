@@ -1,9 +1,10 @@
 module InitSOMBGCMOD
   use data_kind_mod,    only : r8 => DAT_KIND_R8
-  use EcoSIMConfig,     only : nlbiomcp => NumLiveMicrbCompts, ndbiomcp=> NumDeadMicrbCompts
-  use SoilBGCNLayMod,   only : sumorgmlayl,sumLitrOMLayL, sumMicBiomLayL
+  use EcoSIMConfig,     only : nlbiomcp => NumLiveMicrbCompts, ndbiomcp=> NumDeadMicrbCompts, NumMicbAFunGrupsPerCmplx,NumMicbHFunGrupsPerCmplx
+  use MicrobialDiagMod, only : sumorgmlayl,sumLitrOMLayL, sumMicBiomLayL
   use minimathmod,      only : AZMAX1,safe_adb
   use EcoSiMParDataMod, only : micpar
+  use EcosimBGCFluxType, only : CumDryDepoOM_col
   use DebugToolMod
   use MicrobialDataType
   use SOMDataType
@@ -22,9 +23,9 @@ module InitSOMBGCMOD
 
   character(len=*), parameter :: mod_filename = &
   __FILE__
-  real(r8), allocatable :: CORGCX(:)  !C concentations from OM complexes
-  real(r8), allocatable :: CORGNX(:)  !N concentations from OM complexes
-  real(r8), allocatable :: CORGPX(:)  !P concentations from OM complexes
+  real(r8), allocatable :: CORGCX(:)  !C concentations from OM complexes, gC (Mg soil)^-1
+  real(r8), allocatable :: CORGNX(:)  !N concentations from OM complexes, gN (Mg soil)-1
+  real(r8), allocatable :: CORGPX(:)  !P concentations from OM complexes, gP (Mg soil)^-1
 
   public :: InitSOMVars
   public :: InitSOMProfile
@@ -32,6 +33,7 @@ module InitSOMBGCMOD
   public :: InitSOMBGC
   public :: DestructSOMBGC
   public :: MicrobeByLitterFall
+  public :: InoculateCyanoBacter
   contains
 !------------------------------------------------------------------------------------------
 
@@ -64,7 +66,7 @@ module InitSOMBGCMOD
 !------------------------------------------------------------------------------------------
 
   subroutine InitSOMVars(L,NY,NX,FCX)
-
+  use NitroPars, only : CyanoInocC
   implicit none
   integer, intent(in) :: L,NY,NX
   real(r8), intent(in) :: FCX
@@ -72,7 +74,7 @@ module InitSOMBGCMOD
   real(r8), parameter :: DCKR=0.25_r8
   real(r8), parameter :: DCKM=2.5E+04_r8
 
-  integer :: K,M,KK,N,NGL,NN
+  integer :: K,M,KK,N,NGL,NN,KL
   real(r8) :: OC,ON,OP,X
   real(r8) :: OME1(1:NumPlantChemElms)
   real(r8) :: FOSCI,FOSNI,FOSPI
@@ -88,28 +90,29 @@ module InitSOMBGCMOD
   real(r8) :: OSPX(1:jcplx)
   real(r8) :: litrOM(NumPlantChemElms)
   real(r8) :: ORGM(NumPlantChemElms)
-  real(r8) :: tglds
+  real(r8) :: tglds,tCyanoInocC
   integer  :: MID,NE
   ! begin_execution
 
-  associate(                                               &
-    rNCOMC_ave            => micpar%rNCOMC_ave,            &
-    rPCOMC_ave            => micpar%rPCOMC_ave,            &
-    nlbiomcp              => micpar%nlbiomcp,              &
-    k_humus               => micpar%k_humus,               &
-    mid_HeterAerobBacter=> micpar%mid_HeterAerobBacter,&    
-    OHCK                  => micpar%OHCK,                  &
-    OMCK                  => micpar%OMCK,                  &
-    OQCK                  => micpar%OQCK,                  &
-    ORCK                  => micpar%ORCK,                  &
-    ORCI                  => micpar%ORCI,                  &
-    OMCI                  => micpar%OMCI,                  &
-    CNRH                  => micpar%CNRH,                  &
-    CPRH                  => micpar%CPRH,                  &
-    CNOFC                 => micpar%CNOFC,                 &
-    CPOFC                 => micpar%CPOFC,                 &
-    OMCF                  => micpar%OMCF,                  &
-    OMCA                  => micpar%OMCA                   &
+  associate(                                                   &
+    rNCOMC_ave              => micpar%rNCOMC_ave,              &
+    rPCOMC_ave              => micpar%rPCOMC_ave,              &
+    nlbiomcp                => micpar%nlbiomcp,                &
+    k_humus                 => micpar%k_humus,                 &
+    mid_HeterAerobBacter    => micpar%mid_HeterAerobBacter,    &
+    mid_HeterMixtCynoBacter => micpar%mid_HeterMixtCynoBacter, &
+    OHCK                    => micpar%OHCK,                    &
+    OMCK                    => micpar%OMCK,                    &
+    OQCK                    => micpar%OQCK,                    &
+    ORCK                    => micpar%ORCK,                    &
+    ORCI                    => micpar%ORCI,                    &
+    OMCI                    => micpar%OMCI,                    &
+    CNRH                    => micpar%CNRH,                    &
+    CPRH                    => micpar%CPRH,                    &
+    CNOFC                   => micpar%CNOFC,                   &
+    CPOFC                   => micpar%CPOFC,                   &
+    OMCF                    => micpar%OMCF,                    &
+    OMCA                    => micpar%OMCA                     &
   )
 
   D975: DO K=1,micpar%NumOfLitrCmplxs
@@ -138,7 +141,6 @@ module InitSOMBGCMOD
       CNOSCT(K)=CNRH(K)
       CPOSCT(K)=CPRH(K)
     ENDIF
-!    write(*,*)K,L,CNOSCT(K),CPOSCT(K)    
   ENDDO D975
 
   D990: DO K=micpar%NumOfLitrCmplxs+1,jcplx
@@ -194,8 +196,8 @@ module InitSOMBGCMOD
     TOSPK(K) = ORCK(K)*CPRH(K)+OQCK(K)*CPOSCT(KK)+OHCK(K)*CPOSCT(KK)
 !   based on aerobic heterotrophs
 
-    TOSNK(K)=TOSNK(K)+OMCI(ibiom_kinetic,K)*rNCOMC_ave(ibiom_kinetic,mid_HeterAerobBacter,K)+OMCI(ibiom_struct,K)*rNCOMC_ave(ibiom_struct,mid_HeterAerobBacter,K)
-    TOSPK(K)=TOSPK(K)+OMCI(ibiom_kinetic,K)*rPCOMC_ave(ibiom_kinetic,mid_HeterAerobBacter,K)+OMCI(ibiom_struct,K)*rPCOMC_ave(ibiom_struct,mid_HeterAerobBacter,K)
+    TOSNK(K)=TOSNK(K)+OMCI(iLbiom_kinetic,K)*rNCOMC_ave(iLbiom_kinetic,mid_HeterAerobBacter,K)+OMCI(iLbiom_struct,K)*rNCOMC_ave(iLbiom_struct,mid_HeterAerobBacter,K)
+    TOSPK(K)=TOSPK(K)+OMCI(iLbiom_kinetic,K)*rPCOMC_ave(iLbiom_kinetic,mid_HeterAerobBacter,K)+OMCI(iLbiom_struct,K)*rPCOMC_ave(iLbiom_struct,mid_HeterAerobBacter,K)
 
     TOSCI   = TOSCI+OSCI(K)*TOSCK(K)
     TOSNI   = TOSNI+OSCI(K)*TOSNK(K)
@@ -204,6 +206,8 @@ module InitSOMBGCMOD
     OSNX(K) = 0.0_r8
     OSPX(K) = 0.0_r8
   ENDDO D995
+
+  mBiomeAutor_vr(1:NumPlantChemElms,1:NumLiveAutoBioms,L,NY,NX)=0._r8
 
   D8995: DO K=1,jcplx
     IF(L.EQ.0)THEN
@@ -227,8 +231,9 @@ module InitSOMBGCMOD
           OSCM(K)=AMIN1(FCX,1._r8)*CORGCX(K)*VGeomLayer_vr(L,NY,NX)*DCKM/(CORGCX(k_humus)+DCKM)
         ENDIF
       ENDIF
-      X=1.0_r8
-      KK=micpar%k_humus
+
+      X  = 1.0_r8
+      KK = micpar%k_humus
       IF(TOSCI.GT.ZEROS(NY,NX))THEN
         FOSCI = AMIN1(1.0_r8,OSCI(KK)/TOSCI)
         FOSNI = AMIN1(1.0_r8,OSCI(KK)*CNOSCT(KK)/TOSNI)
@@ -239,20 +244,19 @@ module InitSOMBGCMOD
         FOSPI = 0.0_r8
       ENDIF
     ENDIF
-!
-!     MICROBIAL C, N AND P
-!
-!     OMC,OMN,OMP=microbial C,N,P
-!     OMCI=microbial biomass content in litter
-!     OMCF,OMCA=hetero,autotrophic biomass composition in litter
-!     rNCOMC,rPCOMC=maximum N:C and P:C ratios in microbial biomass
-!     OSCX,OSNX,OSPX=remaining unallocated SOC,SON,SOP
-!     The reason that initialization of complex-5 microbes is repated for each
-!     complex is because complex 5 is shared by all the other complexes
-    mBiomeAutor_vr(1:NumPlantChemElms,1:NumLiveAutoBioms,L,NY,NX)=0._r8
+    !
+    !     MICROBIAL C, N AND P
+    !
+    !     OMC,OMN,OMP=microbial C,N,P
+    !     OMCI=microbial biomass content in litter
+    !     OMCF,OMCA=hetero,autotrophic biomass composition in litter
+    !     rNCOMC,rPCOMC=maximum N:C and P:C ratios in microbial biomass
+    !     OSCX,OSNX,OSPX=remaining unallocated SOC,SON,SOP
+    !     The reason that initialization of complex-5 microbes is repated for each
+    !     complex is because complex 5 is shared by all the other complexes
 
-    D8990: DO N=1,NumMicbFunGrupsPerCmplx
-
+    D8990: DO N=1,NumMicbHFunGrupsPerCmplx
+      
       D8991: DO M=1,nlbiomcp
         OME1(ielmc) = AZMAX1(OSCM(K)*OMCI(M,K)*OMCF(N)*FOSCI)
         OME1(ielmn) = AZMAX1(OME1(ielmc)*rNCOMC_ave(M,N,K)*FOSNI)
@@ -263,13 +267,14 @@ module InitSOMBGCMOD
           MID=micpar%get_micb_id(M,NGL)
           DO NE=1,NumPlantChemElms
             mBiomeHeter_vr(NE,MID,K,L,NY,NX)=OME1(NE)/tglds
-          ENDDO
+          ENDDO                
         ENDDO
 
         OSCX (KK)    = OSCX(KK)+OME1(ielmc)
         OSNX (KK)    = OSNX(KK)+OME1(ielmn)
         OSPX (KK)    = OSPX(KK)+OME1(ielmp)
-        D8992: DO NN = 1, NumMicbFunGrupsPerCmplx
+
+        D8992: DO NN = 1, NumMicbAFunGrupsPerCmplx
           tglds=JGnfA(NN)-JGniA(NN)+1._r8
           do NGL=JGniA(NN),JGnfA(NN)
             MID=micpar%get_micb_id(M,NGL)
@@ -284,6 +289,18 @@ module InitSOMBGCMOD
         ENDDO D8992
       ENDDO D8991
     ENDDO D8990
+
+    !for cyanobacteria
+    tCyanoInocC=CyanoInocC*AREA_3D(3,NU_col(NY,NX),NY,NX)    
+    if(L.eq.0 .and. OSCM(K).GT.0._r8)then
+      KL=micpar%NumOfLitrCmplxs
+
+      call InoculateCyanoBacter(K,L,NY,NX,KL,tCyanoInocC)
+
+    elseif(L.eq.NU_col(NY,NX) .and. OSCM(K).GT.0._r8)then
+      KL=jcplx
+      call InoculateCyanoBacter(K,L,NY,NX,KL,tCyanoInocC)
+    endif
     !
     !     MICROBIAL RESIDUE C, N AND P
     !
@@ -345,7 +362,7 @@ module InitSOMBGCMOD
         SolidOM_vr(ielmp,M,K,L,NY,NX)=0.0_r8
       ENDIF
 
-      IF(K.EQ.micpar%k_woody_litr)THEN
+      IF(K.EQ.micpar%k_woody_comp)THEN
         SolidOMAct_vr(M,K,L,NY,NX)=SolidOM_vr(ielmc,M,K,L,NY,NX)*OMCI(1,K)
       ELSE
         SolidOMAct_vr(M,K,L,NY,NX)=SolidOM_vr(ielmc,M,K,L,NY,NX)
@@ -371,8 +388,13 @@ module InitSOMBGCMOD
   RH1PO4DmndBandHeter_vr(:,:,L,NY,NX)    = 0.0_r8
   IF(L.EQ.0)THEN
     RNH4DmndLitrHeter_col(:,:,NY,NX)   = 0.0_r8
+    RNH4DmndLitrBandHeter_col(:,:,NY,NX)   = 0.0_r8
     RNO3DmndLitrHeter_col(:,:,NY,NX)   = 0.0_r8
+    RNO3DmndLitrBandHeter_col(:,:,NY,NX)   = 0.0_r8
     RH2PO4DmndLitrHeter_col(:,:,NY,NX) = 0.0_r8
+    RH2PO4DmndLitrBandHeter_col(:,:,NY,NX) = 0.0_r8
+    RH1PO4DmndLitrHeter_col(:,:,NY,NX) = 0.0_r8
+    RH1PO4DmndLitrBandHeter_col(:,:,NY,NX) = 0.0_r8
   ENDIF
 
   RO2MetaDmndAutor_vr(:,L,NY,NX)       = 0.0_r8
@@ -391,14 +413,19 @@ module InitSOMBGCMOD
 
   IF(L.EQ.0)THEN
     RNH4UptkLitrAutor_col(:,NY,NX)   = 0.0_r8
+    RNH4UptkLitrBandAutor_col(:,NY,NX)   = 0.0_r8
     RNO3UptkLitrAutor_col(:,NY,NX)   = 0.0_r8
+    RNO3UptkLitrBandAutor_col(:,NY,NX)   = 0.0_r8
     RH2PO4UptkLitrAutor_col(:,NY,NX) = 0.0_r8
+    RH2PO4UptkLitrBandAutor_col(:,NY,NX) = 0.0_r8
+    RH1PO4UptkLitrAutor_col(:,NY,NX) = 0.0_r8
+    RH1PO4UptkLitrBandAutor_col(:,NY,NX) = 0.0_r8
   ENDIF
   
   call sumORGMLayL(L,NY,NX,ORGM)
 
   SoilOrgM_vr(1:NumPlantChemElms,L,NY,NX)=ORGM(1:NumPlantChemElms)
-
+  
   ORGCX_vr(L,NY,NX)=SoilOrgM_vr(ielmc,L,NY,NX)
 
   call sumLitrOMLayL(L,NY,NX,litrOM)
@@ -407,6 +434,40 @@ module InitSOMBGCMOD
 
   end associate
   end subroutine InitSOMVars
+!------------------------------------------------------------------------------------------
+  subroutine InoculateCyanoBacter(K,L,NY,NX,KL,CyanoInocC,add_to_existing)
+  implicit none
+  integer, intent(in) :: K,L,NY,NX,KL
+  real(r8), intent(in) :: CyanoInocC
+  logical, optional, intent(in) :: add_to_existing
+  integer :: N,M,NGL,MID,NE
+  real(r8) :: OME1(1:NumPlantChemElms)
+  real(r8) :: tglds,tOMCI
+  logical :: additive
+
+  additive=.false.
+  if(present(add_to_existing))additive=add_to_existing
+
+  N = micpar%mid_HeterMixtCynoBacter
+  tglds = JGnfH(N)-JGniH(N)+1._r8
+  tOMCI=sum(micpar%OMCI(:,K))
+  DO M=1,micpar%nlbiomcp
+    OME1(ielmc) = CyanoInocC*micpar%OMCI(M,K)/(tOMCI*KL)
+    OME1(ielmn) = AZMAX1(OME1(ielmc)*micpar%rNCOMC_ave(M,N,K))
+    OME1(ielmp) = AZMAX1(OME1(ielmc)*micpar%rPCOMC_ave(M,N,K))
+
+    DO NGL=JGniH(N),JGnfH(N)
+      MID=micpar%get_micb_id(M,NGL)
+      DO NE=1,NumPlantChemElms
+        if(additive)then
+          mBiomeHeter_vr(NE,MID,K,L,NY,NX)=mBiomeHeter_vr(NE,MID,K,L,NY,NX)+OME1(NE)/tglds
+        else
+          mBiomeHeter_vr(NE,MID,K,L,NY,NX)=OME1(NE)/tglds
+        endif
+      ENDDO
+    ENDDO
+  ENDDO
+  end subroutine InoculateCyanoBacter
 
 !------------------------------------------------------------------------------------------
   subroutine InitSurfResiduKinetiComponent(L,NY,NX)
@@ -414,8 +475,8 @@ module InitSOMBGCMOD
   integer, intent(in) :: L, NY,NX
 !     begin_execution
   associate(                               &
-   k_woody_litr  => micpar%k_woody_litr  , &
-   k_fine_litr   => micpar%k_fine_litr   , &
+   k_woody_comp  => micpar%k_woody_comp  , &
+   k_fine_comp   => micpar%k_fine_comp   , &
    k_manure      => micpar%k_manure        &
   )
   IF(L.EQ.0)THEN
@@ -425,77 +486,77 @@ module InitSOMBGCMOD
     !
     !     PREVIOUS COARSE WOODY RESIDUE
     !
-    CFOSC_vr(1:jsken,k_woody_litr,L,NY,NX)=real((/0.00,0.045,0.660,0.295/),r8)
+    CFOSC_vr(1:jsken,k_woody_comp,L,NY,NX)=real((/0.00,0.045,0.660,0.295/),r8)
 
     !
     !     MAIZE
     !
     IF(iLitrType_col(1,NY,NX).EQ.1)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.080,0.245,0.613,0.062/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.080,0.245,0.613,0.062/),r8)
       !
       !     WHEAT
       !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.2)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.125,0.171,0.560,0.144/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.125,0.171,0.560,0.144/),r8)
       !
       !     SOYBEAN
       !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.3)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.138,0.426,0.316,0.120/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.138,0.426,0.316,0.120/),r8)
 
       !     NEW STRAW
       !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.4)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.036,0.044,0.767,0.153/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.036,0.044,0.767,0.153/),r8)
 
       !     OLD STRAW
       !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.5)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.075,0.125,0.550,0.250/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.075,0.125,0.550,0.250/),r8)
 
       !
       !     COMPOST
       !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.6)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.143,0.015,0.640,0.202/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.143,0.015,0.640,0.202/),r8)
       !
       !     GREEN MANURE
       !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.7)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.202,0.013,0.560,0.225/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.202,0.013,0.560,0.225/),r8)
 
       !     NEW DECIDUOUS FOREST
 !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.8)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.070,0.41,0.36,0.16/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.070,0.41,0.36,0.16/),r8)
 
 !
       !     NEW CONIFEROUS FOREST
 !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.9)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.07,0.25,0.38,0.30/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.07,0.25,0.38,0.30/),r8)
 
       !     OLD DECIDUOUS FOREST
 !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.10)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.02,0.06,0.34,0.58/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.02,0.06,0.34,0.58/),r8)
       !
       !     OLD CONIFEROUS FOREST
       !
     ELSEIF(iLitrType_col(1,NY,NX).EQ.11)THEN
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.02,0.06,0.34,0.58/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.02,0.06,0.34,0.58/),r8)
       !     DEFAULT
       !
     ELSE
-      CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)=real((/0.075,0.125,0.550,0.250/),r8)
+      CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)=real((/0.075,0.125,0.550,0.250/),r8)
 
     ENDIF
     !
     !     PREVIOUS COARSE (K=0) AND FINE (K=1) ROOTS
     !
   ELSE
-    CFOSC_vr(1:jsken,k_woody_litr,L,NY,NX) = real((/0.00,0.00,0.20,0.80/),r8)
-    CFOSC_vr(1:jsken,k_fine_litr,L,NY,NX)  = real((/0.02,0.06,0.34,0.58/),r8)
+    CFOSC_vr(1:jsken,k_woody_comp,L,NY,NX) = real((/0.00,0.00,0.20,0.80/),r8)
+    CFOSC_vr(1:jsken,k_fine_comp,L,NY,NX)  = real((/0.02,0.06,0.34,0.58/),r8)
   ENDIF
   end associate
   end subroutine InitSurfResiduKinetiComponent
@@ -529,21 +590,21 @@ module InitSOMBGCMOD
   end associate
   end subroutine InitManureKinetiComponent
 !------------------------------------------------------------------------------------------
-  subroutine InitPOMKinetiComponent(L,NY,NX,HCX,TORGL,LandScape1stSoiLayDepth,FCX,CORGCM)
+  subroutine InitPOMKinetiComponent(L,NY,NX,HCX,TORGL,LandScape1stSoiLayDepth,FCX,VORGCM)
   implicit none
   integer, intent(in)  :: L, NY, NX
   real(r8), intent(in) :: HCX
   real(r8), intent(in) :: TORGL
   real(r8), intent(in) :: LandScape1stSoiLayDepth
   real(r8), intent(out):: FCX
-  real(r8), intent(out):: CORGCM
+  real(r8), intent(out):: VORGCM      !volume of consolidated organic matter [cm3]=mass/density
   real(r8) :: FCY,FC0,FC1
 
 ! begin_execution
   associate(                           &
     k_POM       => micpar%k_POM,       &
     k_humus     => micpar%k_humus,     &
-    k_fine_litr => micpar%k_fine_litr, &
+    k_fine_comp => micpar%k_fine_comp, &
     k_manure    => micpar%k_manure,    &
     iprotein    => micpar%iprotein,    &
     icarbhyro   => micpar%icarbhyro,   &
@@ -584,12 +645,11 @@ module InitSOMBGCMOD
         ENDIF
         FCX=EXP(HCX*TORGL)
         !     WETLAND
-!
+        !
       ELSE
         FCY=0.60_r8
         IF(CORGCX(k_humus).GT.1.0E-32_r8)THEN
-          FC0=FCY*EXP(-5.0_r8*(AMIN1(CORGNX(k_humus), &
-            10.0_r8*CORGPX(k_humus))/CORGCX(k_humus)))
+          FC0=FCY*EXP(-5.0_r8*(AMIN1(CORGNX(k_humus),10.0_r8*CORGPX(k_humus))/CORGCX(k_humus)))
         ELSE
           FC0=FCY
         ENDIF
@@ -630,9 +690,11 @@ module InitSOMBGCMOD
 
   IF(L.GT.0)THEN
     IF(SoilBulkDensity_vr(L,NY,NX).GT.ZERO)THEN
-      CORGCM=AMIN1(orgcden,(CORGCX(k_fine_litr)+CORGCX(k_manure)+CORGCX(k_POM)+CORGCX(k_humus)))/0.55_r8
+      !assume 0.55 of organic matter is carbon
+      VORGCM=AMIN1(orgcden,(CORGCX(k_fine_comp)+CORGCX(k_manure)+CORGCX(k_POM)+CORGCX(k_humus))/DensitySolidOM)/OMCMassFrac      
+      SolidOMPercent_vr(L,NY,NX)=(CORGCX(k_fine_comp)+CORGCX(k_manure)+CORGCX(k_POM)+CORGCX(k_humus))*1.e-4_r8/OMCMassFrac ![g Mg-1] -> [g /100g-1]
     else
-      CORGCM=0._r8
+      VORGCM=0._r8
     endif
   endif
   end associate
@@ -640,14 +702,14 @@ module InitSOMBGCMOD
 
 !------------------------------------------------------------------------------------------
 
-  subroutine InitSOMProfile(L,NY,NX,HCX,TORGL,LandScape1stSoiLayDepth,CORGCM,FCX)
+  subroutine InitSOMProfile(L,NY,NX,HCX,TORGL,LandScape1stSoiLayDepth,VORGCM,FCX)
 
   implicit none
   integer,  intent(in)  :: L,NY,NX
   real(r8), intent(in)  :: HCX
   real(r8), intent(in)  :: TORGL
   real(r8), intent(in)  :: LandScape1stSoiLayDepth
-  real(r8), intent(out) :: CORGCM
+  real(r8), intent(out) :: VORGCM !volume of consolidated organic matter [cm3]
   real(r8), intent(out) :: FCX
 
   call PrintInfo('beg InitSOMProfile')
@@ -661,7 +723,7 @@ module InitSOMBGCMOD
   call InitManureKinetiComponent(L,NY,NX)
   !
   !     POM
-  call InitPOMKinetiComponent(L,NY,NX,HCX,TORGL,LandScape1stSoiLayDepth,FCX,CORGCM)
+  call InitPOMKinetiComponent(L,NY,NX,HCX,TORGL,LandScape1stSoiLayDepth,FCX,VORGCM)
   
   call PrintInfo('end InitSOMProfile')
   end subroutine InitSOMProfile
@@ -687,8 +749,8 @@ module InitSOMBGCMOD
   call PrintInfo('beg InitLitterProfile')
 
   IF(VLSoilMicPMass_vr(L,NY,NX).GT.ZEROS(NY,NX))THEN
-    scal                      = AREA_3D(3,L,NY,NX)/VLSoilMicPMass_vr(L,NY,NX)
-    CORGCX(1:NumOfLitrCmplxs) = RSC_vr(1:NumOfLitrCmplxs,L,NY,NX)*scal
+    scal                      = AREA_3D(3,L,NY,NX)/VLSoilMicPMass_vr(L,NY,NX) ![m2 d-2] /[Mg soil d-2]=[m2/Mg soil]
+    CORGCX(1:NumOfLitrCmplxs) = RSC_vr(1:NumOfLitrCmplxs,L,NY,NX)*scal ![gC m-2]*[m2/Mg soil]=[gC/Mg soil]
     CORGNX(1:NumOfLitrCmplxs) = RSN_vr(1:NumOfLitrCmplxs,L,NY,NX)*scal
     CORGPX(1:NumOfLitrCmplxs) = RSP_vr(1:NumOfLitrCmplxs,L,NY,NX)*scal
   ELSE
@@ -701,8 +763,8 @@ module InitSOMBGCMOD
     !     ALLOCATE SOC TO POC(3) AND HUMUS(4)
     !
   IF(L.GT.0)THEN
-    CORGCZ = CSoilOrgM_vr(ielmc,L,NY,NX)
-    CORGRZ = COMLitrC_vr(L,NY,NX)
+    CORGCZ = CSoilOrgM_vr(ielmc,L,NY,NX) !total SOC, [gC/Mg soil]
+    CORGRZ = COMLitrC_vr(L,NY,NX)        !POC, [gC/Mg soil]
     CORGNZ = CSoilOrgM_vr(ielmn,L,NY,NX)
     CORGPZ = CSoilOrgM_vr(ielmp,L,NY,NX)
     IF(CORGCZ.GT.ZERO)THEN
@@ -711,8 +773,7 @@ module InitSOMBGCMOD
       CORGNX(k_POM)   = AMIN1(CNRH(k_POM)*CORGCX(k_POM),CORGNZ)
       CORGNX(k_humus) = AZMAX1(CORGNZ-CORGNX(k_POM))
       CORGPX(k_POM)   = AMIN1(CPRH(k_POM)*CORGCX(k_POM),CORGPZ)
-      CORGPX(k_humus) = AZMAX1(CORGPZ-CORGPX(k_POM))
-
+      CORGPX(k_humus) = AZMAX1(CORGPZ-CORGPX(k_POM))      
     ELSE
       CORGCX(k_POM)   = 0.0_r8
       CORGCX(k_humus) = 0.0_r8
@@ -729,23 +790,26 @@ module InitSOMBGCMOD
     CORGPX(k_POM)   = 0.0_r8
     CORGPX(k_humus) = 0.0_r8
   ENDIF
+  
   call PrintInfo('end InitLitterProfile')
   end associate
   end subroutine InitLitterProfile
 !------------------------------------------------------------------------------------------
 
-  subroutine MicrobeByLitterFall(I,J,K,NY,NX,OSCMK)
+  subroutine MicrobeByLitterFall(I,J,K,NY,NX,OSCMK,OME_in,mscal)
   !
   !seeding microbes added through litterfall
   implicit none
   integer, intent(in) :: I,J,K
   integer, intent(in) :: NY,NX
-  real(r8),intent(in) :: OSCMK
-
+  real(r8),intent(in) :: OSCMK                       !input organic carbon
+  real(r8), intent(out) :: OME_in(NumPlantChemElms)  !summary of total microbial input
+  real(r8),optional,intent(in) :: mscal
   integer :: M,N,NGL,MID,NE,NN
-  real(r8) :: FOSCI,FOSNI,FOSPI,tglds
-  real(r8) :: OME1(1:NumPlantChemElms)
-  real(r8), parameter :: scal=0.01_r8    !scalar for incoming microbial biomass associated with litterfall.
+  real(r8) :: FOSCI,FOSNI,FOSPI,tglds,tOMCI,fOMCH,tOMCA
+  real(r8) :: OME1(1:NumPlantChemElms),OSCMKK
+  
+  real(r8) :: scal    !scalar for incoming microbial biomass associated with litterfall, [1%].
   associate(                         &
     rNCOMC_ave => micpar%rNCOMC_ave, &
     rPCOMC_ave => micpar%rPCOMC_ave, &
@@ -755,15 +819,22 @@ module InitSOMBGCMOD
     OMCA       => micpar%OMCA        &
   )
 
+  if(present(mscal))then
+    scal=mscal
+  else
+    scal=0.01_r8 !microbial biomass fraction of the incoming organic matter, [1%] 
+  endif
   FOSCI=1._r8; FOSNI=1._r8; FOSPI=1._r8
+  OME_in=0._r8; tOMCI=sum(OMCI(:,K))
+  tOMCA=sum(OMCA(:));fOMCH=1._r8/(1._r8+tOMCA)
+  OSCMKK=OSCMK*scal*fOMCH/tOMCI
 
-  DO N=1,NumMicbFunGrupsPerCmplx
-    
+  DO N=1,NumMicbHFunGrupsPerCmplx    
     DO M=1,nlbiomcp
-      OME1(ielmc) = AZMAX1(OSCMK*OMCI(M,K)*OMCF(N)*FOSCI)*scal
+      OME1(ielmc) = AZMAX1(OSCMKK*OMCI(M,K)*OMCF(N)*FOSCI)
       OME1(ielmn) = AZMAX1(OME1(ielmc)*rNCOMC_ave(M,N,K)*FOSNI)
       OME1(ielmp) = AZMAX1(OME1(ielmc)*rPCOMC_ave(M,N,K)*FOSPI)
-      
+      OME_in=OME_in+OME1
       tglds=JGnfH(N)-JGniH(N)+1._r8
       do NGL=JGniH(N),JGnfH(N)
         MID=micpar%get_micb_id(M,NGL)
@@ -772,7 +843,7 @@ module InitSOMBGCMOD
         ENDDO
       ENDDO
 
-      DO NN = 1, NumMicbFunGrupsPerCmplx
+      DO NN = 1, NumMicbAFunGrupsPerCmplx
         tglds=JGnfA(NN)-JGniA(NN)+1._r8
         do NGL=JGniA(NN),JGnfA(NN)
           MID=micpar%get_micb_id(M,NGL)
@@ -780,12 +851,14 @@ module InitSOMBGCMOD
             mBiomeAutor_vr(NE,MID,0,NY,NX)=mBiomeAutor_vr(NE,MID,0,NY,NX)+OME1(NE)*OMCA(NN)/tglds
           ENDDO
         ENDDO
+        OME_in=OME_in+OME1(:)*OMCA(NN)
       ENDDO
     ENDDO
   ENDDO
   
   end associate
   end subroutine MicrobeByLitterFall
+
 !------------------------------------------------------------------------------------------
 
   subroutine DestructSOMBGC

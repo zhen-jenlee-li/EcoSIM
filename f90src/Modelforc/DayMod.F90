@@ -1,11 +1,13 @@
 
   module DayMod
   use data_kind_mod,      only: r8 => DAT_KIND_R8
-  use minimathmod,        only: isLeap, AZMAX1
-  use MiniFuncMod,        only: GetDayLength
+  use minimathmod,        only: isLeap,  AZMAX1
+  use MiniFuncMod,        only: GetDayLength, calculate_equation_of_time
   use PrescribePhenolMod, only: PrescribePhenologyInterp
   use SurfLitterDataType, only: XTillCorp_col
-  use fileUtil,           only: iulog
+  use abortutils,         only: iulog
+  use DebugToolMod,       only: PrintInfo
+  use DepositionMod,     only : ApplyBioAerosol
   use CanopyRadDataType
   use EcosimConst  
   use EcoSIMCtrlMod
@@ -38,14 +40,6 @@
   CHARACTER(LEN=*), PARAMETER :: MOD_FILENAME=&
   __FILE__
 
-  CHARACTER(len=3) :: CHARN1,CHARN2
-  CHARACTER(len=4) :: CHARN3
-
-  real(r8) :: CORP,DIRRA1,DIRRA2,FW,FZ
-  real(r8) :: RR,TFZ,TWP,TVW,XI
-
-  integer :: ITYPE,I2,I3,J,L,M,N,NN,N1,N2,N3,NX,NY,NZ
-
   public :: day
   contains
 
@@ -58,6 +52,9 @@
 
   integer, intent(in) :: I
   integer, intent(in) :: NHW,NHE,NVN,NVS
+  integer :: NN,N,M,NY,NX
+  real(r8) :: eot,leapday
+  character(len=*), parameter :: subname='day'
 !     execution begins here
 !     begin_execution
 !
@@ -65,28 +62,29 @@
 !
 !     CDATE=DDMMYYYY
 !
-  N=0
-  NN=0
-  D500: DO M=1,12
-    N=30*M+ICOR(M)
+  call PrintInfo('beg '//subname)
+  if(isLeap(iYearCurrent))then
+    leapday=1._r8
+  else
+    leapday=0._r8
+  endif
 
-!  leap year February.
-    IF(isLeap(iYearCurrent) .and. M.GE.2)N=N+1
-    IF(I.LE.N)THEN
-      N1=I-NN
-      N2=M
-      N3=iYearCurrent
-      call UpdateDailyAccumulators(I, NHW, NHE, NVN, NVS)
-      exit
-    ENDIF
-    NN=N
-  ENDDO D500
+  eot=calculate_equation_of_time(I,leapday)
+  DO NX=NHW,NHE
+    DO NY=NVN,NVS
+      SolarNoonHour_col(NY,NX) = SolarNoonHourYM_col(NY,NX)+ eot
+
+      call ApplyBioAerosol(I,12,NY,NX)
+    ENDDO
+  ENDDO    
+
+  call UpdateDailyAccumulators(I, NHW, NHE, NVN, NVS)
 
   call TillageandIrrigationEvents(I, NHW, NHE, NVN, NVS)
 
   if(ldo_sp_mode)call PrescribePhenologyInterp(I, NHW, NHE, NVN, NVS)
 
-  RETURN
+  call PrintInfo('end '//subname)
 
   END subroutine day
 
@@ -99,16 +97,20 @@
 
 !  real(r8) :: AZI
 !  REAL(R8) :: DEC
-  integer :: NE
+  integer :: NE,NX,NY,I2,I3,ITYPE,N
+  character(len=*), parameter :: subname='UpdateDailyAccumulators'
 
+  call PrintInfo('beg '//subname)
   D955: DO NX=NHW,NHE
     D950: DO NY=NVN,NVS
-!     RESET ANNUAL FLUX ACCUMULATORS AT START OF ANNUAL CYCLE
-!     ALAT=latitude +ve=N,-ve=S
-!
+
+      !     RESET ANNUAL FLUX ACCUMULATORS AT START OF ANNUAL CYCLE
+      !     ALAT=latitude +ve=N,-ve=S
+      !
       HUDX_col(NY,NX)=0._r8
       HUDN_col(NY,NX)=100.0_r8
       TWIND_col(NY,NX)=0._r8
+      SeasonalNonstCDayAve_pft(:,NY,NX) = 0._r8
 !      PrecDaily_col(NY,NX)=0._r8
 !
 !
@@ -125,7 +127,6 @@
 !     ITYPE 1=daily,2=hourly
 !
       ITYPE=IWTHR
-
 
 !
 !     PARAMETERS FOR CALCULATING HOURLY RADIATION, TEMPERATURE
@@ -211,7 +212,7 @@
       ENDDO D600
     ENDDO D950
   ENDDO D955
-
+  call PrintInfo('end '//subname)
   END subroutine UpdateDailyAccumulators
 !-----------------------------------------------------------------------------------------
 
@@ -220,7 +221,12 @@
   implicit none
 
   integer, intent(in) :: I, NHW, NHE, NVN, NVS
+  integer :: NY,NX,J,L
+  real(r8) :: TWP,TVW,TFZ
+  real(r8) :: CORP,DIRRA1,DIRRA2,FW,FZ,RR
+  character(len=*), parameter :: subname='TillageandIrrigationEvents'
 
+  call PrintInfo('beg '//subname)
   D9995: DO NX=NHW,NHE
     D9990: DO NY=NVN,NVS
 !
@@ -230,6 +236,7 @@
 !     ITILL=soil disturbance type, 1-20:tillage,21=litter removal,22=fire,23-24=drainage
 !     CORP=soil mixing fraction used in redist.f
 !
+      CORP=0._r8
       IF(iSoilDisturbType_col(I,NY,NX).LE.10)THEN
         ! type-1 tillage
         CORP=AMIN1(1.0_r8,AZMAX1(iSoilDisturbType_col(I,NY,NX)/10.0_r8))
@@ -239,7 +246,7 @@
       ENDIF
       !fraction of material not mixed
       XTillCorp_col(NY,NX)=1.0_r8-CORP
-!     WRITE(*,2227)'TILL',I,iSoilDisturbType_col(I,NY,NX),CORP,XTillCorp_col(NY,NX)
+!      WRITE(990,*)'TILL',I,iSoilDisturbType_col(I,NY,NX),CORP,XTillCorp_col(NY,NX)
 !2227  FORMAT(A8,2I4,12E12.4)
 !
 !     AUTOMATIC IRRIGATION IF SELECTED
@@ -297,5 +304,6 @@
       ENDIF
     ENDDO D9990
   ENDDO D9995
+  call PrintInfo('end '//subname)
   end subroutine TillageandIrrigationEvents
 END module DayMod

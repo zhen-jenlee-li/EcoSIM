@@ -1,6 +1,6 @@
 module ErosionBalMod
   use data_kind_mod,    only: r8 => DAT_KIND_R8
-  use EcoSIMConfig,     only: nlbiomcp=>NumLiveMicrbCompts
+  use EcoSIMConfig,     only: nlbiomcp=>NumLiveMicrbCompts,NumMicbAFunGrupsPerCmplx,NumMicbHFunGrupsPerCmplx
   use EcoSiMParDataMod, only: micpar
   use SoilPropertyDataType
   use RootDataType
@@ -48,8 +48,8 @@ implicit none
 ! FSINK=hourly rate for sediment sinking
 !
   call PrintInfo('beg '//subname)
-  D9885: DO L=NL_col(NY,NX)-1,1,-1
-    IF(SoilBulkDensity_vr(L,NY,NX).LE.ZERO.AND.DLYR_3D(3,L,NY,NX).GT.ZERO)THEN
+  D9885: DO L=NL_col(NY,NX)-1,1,-1     !should this include litter layer? JYT, 2026 Mar 6th.
+    IF(SoilBulkDensity_vr(L,NY,NX).LE.ZERO .AND. DLYR_3D(3,L,NY,NX).GT.ZERO)THEN
       !sinking from water to sediment layer
       D9880: DO LL=L+1,NL_col(NY,NX)
         IF(DLYR_3D(3,LL,NY,NX).GT.ZEROS(NY,NX))exit
@@ -62,21 +62,23 @@ implicit none
 !     *ER=sediment flux from erosion.f
 !     sediment code:XSED=total,XSAN=sand,XSIL=silt,XCLA=clay
 !
+      
       FSAN           = FSINK*SAND_vr(L,NY,NX)
       FSIL           = FSINK*SILT_vr(L,NY,NX)
       FCLA           = FSINK*CLAY_vr(L,NY,NX)
       SAND_vr(L,NY,NX)  = SAND_vr(L,NY,NX)-FSAN
       SILT_vr(L,NY,NX)  = SILT_vr(L,NY,NX)-FSIL
       CLAY_vr(L,NY,NX)  = CLAY_vr(L,NY,NX)-FCLA
+
       SAND_vr(LL,NY,NX) = SAND_vr(LL,NY,NX)+FSAN
       SILT_vr(LL,NY,NX) = SILT_vr(LL,NY,NX)+FSIL
       CLAY_vr(LL,NY,NX) = CLAY_vr(LL,NY,NX)+FCLA
-!
-!     FERTILIZER POOLS
-!
-!     *ER=sediment flux from erosion.f
-!     sediment code:NH4,NH3,NHU,NO3=NH4,NH3,urea,NO3
-!
+      !
+      !     FERTILIZER POOLS
+      !
+      !     *ER=sediment flux from erosion.f
+      !     sediment code:NH4,NH3,NHU,NO3=NH4,NH3,urea,NO3
+      !
       DO NTF=ifertn_beg,ifertn_end
         FNX                         = FSINK*FertN_mole_soil_vr(NTF,L,NY,NX)
         FertN_mole_soil_vr(NTF,L,NY,NX)  = FertN_mole_soil_vr(NTF,L,NY,NX)-FNX
@@ -130,7 +132,7 @@ implicit none
 !         OHC,OHN,OHP,OHA=adsorbed C,N,P,acetate
 !         OSC,OAA,OSN,OSP=SOC,colonized SOC,SON,SOP
 !
-        D1960: DO N=1,NumMicbFunGrupsPerCmplx
+        D1960: DO N=1,NumMicbHFunGrupsPerCmplx
           DO NGL=JGniH(N),JGnfH(N)
             DO M=1,nlbiomcp
               MID=micpar%get_micb_id(M,NGL)
@@ -149,7 +151,7 @@ implicit none
 !         OHC,OHN,OHP,OHA=adsorbed C,N,P,acetate
 !         OSC,OAA,OSN,OSP=SOC,colonized SOC,SON,SOP
 !
-      DO N=1,NumMicbFunGrupsPerCmplx
+      DO N=1,NumMicbAFunGrupsPerCmplx
         DO NGL=JGniA(N),JGnfA(N)
           DO M=1,nlbiomcp
             MID=micpar%get_micb_id(M,NGL)        
@@ -208,17 +210,17 @@ implicit none
 
   IF(iErosionMode.EQ.ieros_frzthaweros.OR.iErosionMode.EQ.ieros_frzthawsomeros)THEN
     tErosionSedmLoss_col(NY,NX) = 0.0_r8
-    TSandEros_col(NY,NX)        = 0.0_r8
-    TSiltEros_col(NY,NX)        = 0.0_r8
-    TCLAYEros_col(NY,NX)        = 0.0_r8
-    TNH4Eros_col(NY,NX)         = 0.0_r8
-    TNH3Eros_col(NY,NX)         = 0.0_r8
-    TNUreaEros_col(NY,NX)       = 0.0_r8
-    TNO3Eros_col(NY,NX)         = 0.0_r8
-    TNH4ErosBand_col(NY,NX)     = 0.0_r8
-    TNH3ErosBand_col(NY,NX)     = 0.0_r8
-    TNUreaErosBand_col(NY,NX)   = 0.0_r8
-    TNO3ErosBand_col(NY,NX)     = 0.0_r8
+    TSandErosed_col(NY,NX)        = 0.0_r8
+    TSiltErosed_col(NY,NX)        = 0.0_r8
+    TCLAYErosed_col(NY,NX)        = 0.0_r8
+    TNH4Erosed_molN_col(NY,NX)         = 0.0_r8
+    TNH3Erosed_molN_col(NY,NX)         = 0.0_r8
+    TNUreaErosed_molN_col(NY,NX)       = 0.0_r8
+    TNO3Erosed_molN_col(NY,NX)         = 0.0_r8
+    TNH4ErosBand_molN_col(NY,NX)     = 0.0_r8
+    TNH3ErosBand_molN_col(NY,NX)     = 0.0_r8
+    TNUreaErosBand_molN_col(NY,NX)   = 0.0_r8
+    TNO3ErosBand_molN_col(NY,NX)     = 0.0_r8
 
     trcx_TER_col(idx_beg:idx_end,NY,NX)   = 0.0_r8
     trcp_TER_col(idsp_beg:idsp_end,NY,NX) = 0.0_r8

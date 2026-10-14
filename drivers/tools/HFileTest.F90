@@ -3,8 +3,7 @@ program HFileTest
   use data_kind_mod , only : r8 => DAT_KIND_R8
   use data_const_mod, only : pi=> DAT_CONST_PI
   use GridConsts    , only : bounds,JP
-  use fileUtil      , only : iulog
-  use abortutils        , only : endrun
+  use abortutils        , only : endrun,iulog
   use EcoSIMCtrlMod     , only : etimer
   use EcoSIMConfig
   implicit none
@@ -14,7 +13,7 @@ program HFileTest
   real(r8), pointer :: TSOI(:)
   real(r8), pointer :: VSM(:)
   integer :: jh,jd
-  character(len=36):: nmlfile
+  character(len=256):: nmlfile
 
   character(len=256) :: ioerror_msg
   integer :: rc, fu

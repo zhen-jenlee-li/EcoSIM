@@ -47,11 +47,13 @@ module EcoSIMDesctruct
   use SnowPhysData        , only : DestructSnowPhysData
   use HydroThermData      , only : DestructHydroThermData
   use BalanceCheckDataType, only : DestructBalanceCheckData
-  use PerturbationMod     , only : destructSoilWarming
+  use EcosysWarmingMod     , only : destructSoilWarming
   use TracerIDMod         , only : CleanUpTracerIDs
   use NumericalAuxMod     , only : DestructNumericAux
   use PlantTraitTableMod  , only : DestructPlantTraitTable
   use MicBGCAPI           , only : MicAPI_cleanup  
+  use RadiationDataMod    , only : DestroyRadiationData
+  use MLDataDiagType      , only : DestructMLDataType
   implicit none
 
   call MicAPI_cleanup
@@ -131,7 +133,10 @@ module EcoSIMDesctruct
   call destructSoilWarming()
 
   call DestructNumericAux()
-
+  
+  call DestructMLDataType
+  
+  call DestroyRadiationData
   call CleanUpTracerIDs
   end subroutine DestructEcoSIM
 

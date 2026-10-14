@@ -4,6 +4,7 @@ module InitNoSaltTransportMod
   USE MiniMathMod,      ONLY: AZMAX1, fixnegmass, flux_mass_limiter,AZERO
   use TracerPropMod,    only: MolecularWeight
   use EcoSiMParDataMod, only: micpar
+  use EcoSIMCtrlMod,    only: lverb  
   use NumericalAuxMod
   use DebugToolMod
   use SOMDataType
@@ -183,6 +184,7 @@ module InitNoSaltTransportMod
           ENDDO
         ENDDO    
       ENDDO 
+
       !
       !     GAS AND SOLUTE SINKS AND SOURCES IN SOIL LAYERS FROM MICROBIAL
       !     TRANSFORMATIONS IN 'NITRO' + ROOT EXCHANGE IN 'EXTRACT'
@@ -191,7 +193,7 @@ module InitNoSaltTransportMod
       !     dt_GasCyc=1/number of cycles NPH-1 for gas flux calculations
       !
       DO ids=ids_beg,ids_end
-        SoluteDifusivitytscaledM_vr(ids,0,NY,NX)=SoluteDifusvty_vr(ids,0,NY,NX)*dts_HeatWatTP
+        SoluteDifusivitytscaledM_vr(ids,0,NY,NX)=SoluteDifusvtyT_vr(ids,0,NY,NX)*dts_HeatWatTP
       ENDDO
 
       DO idom=idom_beg,idom_end
@@ -199,25 +201,24 @@ module InitNoSaltTransportMod
       enddo
       
       DO idg=idg_beg,idg_NH3-1
-        if(trcs_RMicbUptake_vr(idg,0,NY,NX)>0._r8)then
+        if(trcs_RMicbUptake_vr(idg,0,NY,NX).GT.0._r8)then
           RBGCSinkGasMM_vr(idg,0,NY,NX) = trcs_RMicbUptake_vr(idg,0,NY,NX)*dts_gas
         else
           RBGCSrceGasMM_vr(idg,0,NY,NX) =-trcs_RMicbUptake_vr(idg,0,NY,NX)*dts_gas
         endif
-        RBGCSinkGasMM_vr(idg,0,NY,NX) = RBGCSinkGasMM_vr(idg,0,NY,NX)+trcs_solml_drib_vr(idg,0,NY,NX)*dts_gas        
+        RBGCSinkGasMM_vr(idg,0,NY,NX) = RBGCSinkGasMM_vr(idg,0,NY,NX)+AZMAX1(trcs_solml_drib_vr(idg,0,NY,NX))*dts_gas        
         trcs_solml_drib_vr(idg,0,NY,NX)=0._r8
       enddo
 
       idg=idg_NH3
-      if(TRProd_chem_sol_NH3_soil_vr(0,NY,NX)>0._r8)then
+      if(TRProd_chem_sol_NH3_soil_vr(0,NY,NX).GT.0._r8)then
         RBGCSrcSoluteM_vr(idg,0,NY,NX)   = TRProd_chem_sol_NH3_soil_vr(0,NY,NX)*dts_HeatWatTP      
       else      
         RBGCSinkSoluteM_vr(idg,0,NY,NX)   = -TRProd_chem_sol_NH3_soil_vr(0,NY,NX)*dts_HeatWatTP
-      endif
-      
+      endif      
       RBGCSinkGasMM_vr(idg,0,NY,NX) = RBGCSinkGasMM_vr(idg,0,NY,NX)+trcs_solml_drib_vr(idg,0,NY,NX)*dts_gas        
       trcs_solml_drib_vr(idg,0,NY,NX)=0._r8
-
+      
       DO ids=ids_nut_beg,ids_nuts_end    
         if(RNut_MicbRelease_vr(ids,0,NY,NX)>0._r8)then
           RBGCSrcSoluteM_vr(ids,0,NY,NX)   = RNut_MicbRelease_vr(ids,0,NY,NX)*dts_HeatWatTP
@@ -500,11 +501,11 @@ module InitNoSaltTransportMod
         enddo
 
         DO ids=ids_beg,ids_end
-          SoluteDifusivitytscaledM_vr(ids,L,NY,NX)=SoluteDifusvty_vr(ids,L,NY,NX)*dts_HeatWatTP
+          SoluteDifusivitytscaledM_vr(ids,L,NY,NX)=SoluteDifusvtyT_vr(ids,L,NY,NX)*dts_HeatWatTP
         ENDDO
 
         DO idg=idg_beg,idg_NH3
-          GasDifctScaledMM_vr(idg,L,NY,NX)=GasDifc_vr(idg,L,NY,NX)*dts_gas
+          GasDifctScaledMM_vr(idg,L,NY,NX)=GasDifcT_vr(idg,L,NY,NX)*dts_gas
         ENDDO
       ENDDO
     ENDDO
@@ -525,6 +526,7 @@ module InitNoSaltTransportMod
     trcg_AquaAdv_flxM_snvr(idg,1,NY,NX)=(Rain2SoilSurf_col(NY,NX)*trcg_rain_mole_conc_col(idg,NY,NX) &
       +Irrig2SoilSurf_col(NY,NX)*trcg_irrig_mole_conc_col(idg,NY,NX))*MolecularWeight(idg)*dts_HeatWatTP
   ENDDO
+  NWetDep_col(NY,NX)=NWetDep_col(NY,NX)+Rain2SoilSurf_col(NY,NX)*(NH4_rain_mole_conc(NY,NX)+NO3_rain_mole_conc(NY,NX))*natomw
 
   trcn_AquaAdv_flxM_snvr(ids_NH4,1,NY,NX)   = (Rain2SoilSurf_col(NY,NX)*NH4_rain_mole_conc(NY,NX) &
     +Irrig2SoilSurf_col(NY,NX)*NH4_irrig_mole_conc(I,NY,NX))*natomw*dts_HeatWatTP

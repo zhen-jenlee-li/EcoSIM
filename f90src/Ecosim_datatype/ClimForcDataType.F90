@@ -32,6 +32,7 @@ implicit none
   real(r8) :: RAIN(366)                         !daily precipitation, [mm d-1 ]
   real(r8) :: WIND(366)                         !daily wind travel, [m d-1]
   real(r8) :: DWPT(2,366)                       !daily dewpoint temperature, [oC]
+  real(r8) :: DryDepoOMC(366)                   !dry deposition of organic C, [gC/day/m2]
 
   real(r8) :: TMP_hrly(24,366)                   !hourly air temperature, [oC]
   real(r8) :: SWRad_hrly(24,366)                !hourly solar radiation, [MJ m-2 h-1]
@@ -48,7 +49,9 @@ implicit none
   real(r8) :: DWIND(12)                         !change factor for wind speed, [-]
   real(r8) :: DCN4R(12)                         !change factor for NH4 in precipitation, [-]
   real(r8) :: DCNOR(12)                         !change factor for NO3 in precipitation, [-]
-
+  
+  real(r8),target,allocatable ::  srad_scalar_col(:,:)     !solar radiation scalar due to open top chamber
+  real(r8),target,allocatable ::  EMS_Modify_Scalar_col(:,:)      !emissivity scalar due to open top chamber
   real(r8),target,allocatable ::  Eco_RadSW_col(:,:)       !shortwave radiation absorbed by the ecosystem [MJ/h]
   real(r8),target,allocatable ::  TKS_ref_vr(:,:,:,:)      !reference tempeature profile from control run to warming experiment [K]
   real(r8),target,allocatable ::  TDTPX(:,:,:)                       !accumulated change  for maximum temperature, [-]
@@ -68,7 +71,7 @@ implicit none
   real(r8),target,allocatable ::  DayLensCurr_col(:,:)                          !daylength, [h]
   real(r8),target,allocatable ::  DayLenthPrev_col(:,:)                          !daylength of previous day, [h]
   real(r8),target,allocatable ::  DayLenthMax_col(:,:)                          !maximum daylength, [h]
-  real(r8),target,allocatable ::  OMEGAG(:,:,:)                      !sine of solar beam on leaf surface, [-]
+  real(r8),target,allocatable ::  OMEGA2Ground(:,:,:)                      !sine of solar beam on leaf surface, [-]
   real(r8),target,allocatable ::  LWRadSky_col(:,:)                  !sky longwave radiation , [MJ/h]
   real(r8),target,allocatable ::  TRAD_col(:,:)                          !total daily solar radiation, [MJ d-1]
   real(r8),target,allocatable ::  HUDX_col(:,:)                          !daily maximum vapor pressure , [kPa]
@@ -92,12 +95,13 @@ implicit none
   real(r8),target,allocatable ::  H2GE_col(:,:)                      !atmospheric H2 concentration, [umol mol-1]
   real(r8),target,allocatable ::  CO2E_col(:,:)                      !atmospheric CO2 concentration, [umol mol-1]
   real(r8),target,allocatable ::  ARGE_col(:,:)                      !atmospheric AR concentration, [umol mol-1]
-  real(r8),target,allocatable ::  SolarNoonHour_col(:,:)             !time of solar noon, [h]
+  real(r8),target,allocatable ::  SolarNoonHourYM_col(:,:)           !year mean time of solar noon, [h]
+  real(r8),target,allocatable ::  SolarNoonHour_col(:,:)             !time of solar noon each day, [h]
   real(r8),target,allocatable ::  RadSWDirect_col(:,:)               !direct shortwave radiation, [W m-2]
   real(r8),target,allocatable ::  RadSWDiffus_col(:,:)               !diffuse shortwave radiation, [W m-2]
   real(r8),target,allocatable ::  RadDirectPAR_col(:,:)              !direct PAR, [umol m-2 s-1]
   real(r8),target,allocatable ::  RadPARDiffus_col(:,:)              !diffuse PAR, [umol m-2 s-1]
-  real(r8),target,allocatable ::  SineSunInclAngle_col(:,:)              !sine of solar angle, [-]
+  real(r8),target,allocatable ::  SineSunInclinationAngle_col(:,:)              !sine of solar angle, [-]
   real(r8),target,allocatable ::  SineSunInclAnglNxtHour_col(:,:)        !sine of solar angle next hour, [-]
   real(r8),target,allocatable ::  TLEX_col(:,:)                          !total latent heat flux x boundary layer resistance, [MJ m-1]
   real(r8),target,allocatable ::  TSHX_col(:,:)                          !total sensible heat flux x boundary layer resistance, [MJ m-1]
@@ -136,6 +140,15 @@ implicit none
   real(r8),target,allocatable ::  tsai_day_pft(:,:,:)                    !interpolated daily sai for different pft used in prescribed phenology, [m2/m2]
   real(r8),target,allocatable ::  height_top_mon_pft(:,:,:,:)            !monthly canopy top height used in prescribed phenology, [m]
   real(r8),target,allocatable ::  height_bot_mon_pft(:,:,:,:)            !monthly canopy bottom height used in prescribed phenology, [m]
+  REAL(R8),target,allocatable ::  NWetDep_col(:,:)                       !atmospheric inorganic N wet deposition, [gN m-2 h-1]
+  real(r8),target,allocatable :: f_aerosol_DOM_col(:,:)                  !fraction of bioaerosol C as dissolved organic matter [0-1]
+  real(r8),target,allocatable :: f_aerosol_DeadMB_col(:,:)               !fraction of bioaerosol C as dead microbial biomass [0-1]
+  real(r8),target,allocatable :: f_aerosol_LiveMB_col(:,:)               !fraction of bioaerosol C as live microbial biomass [0-1]
+  real(r8),target,allocatable :: f_aerosol_DeadNMB_col(:,:)              !fraction of bioaerosol C as dead nonmicrobial biomass [0-1]
+  real(r8),target,allocatable :: f_aerosol_LichB_col(:,:)                !fraction of bioaerosol C as lichen spore, [0-1]
+  real(r8),target,allocatable :: f_aerosol_MossB_col(:,:)                !fraction of bioaerosol C as moss spore, [0-1]
+  real(r8),target,allocatable :: fAeroScalar_col(:,:)                    !optional per-topounit bioaerosol carbon deposition scalar read from grid file, [-]
+  real(r8),target,allocatable :: SeedCDeposition_pft(:,:,:)              !seed C deposition for each PFT, [gC m-2]
 
   contains
 !----------------------------------------------------------------------
@@ -147,6 +160,15 @@ implicit none
   if(len(trim(warming_exp))>10)then
     allocate(TKS_ref_vr(8784,JZ,JY,JX));TKS_ref_vr=0._r8
   endif
+  allocate(f_aerosol_DOM_col(JY,JX));f_aerosol_DOM_col=0._r8
+  allocate(f_aerosol_DeadMB_col(JY,JX));f_aerosol_DeadMB_col=0._r8
+  allocate(f_aerosol_LiveMB_col(JY,JX));f_aerosol_LiveMB_col=0._r8
+  allocate(f_aerosol_DeadNMB_col(JY,JX));f_aerosol_DeadNMB_col=0._r8
+  allocate(f_aerosol_LichB_col(JY,JX));f_aerosol_LichB_col=0._r8
+  allocate(f_aerosol_MossB_col(JY,JX));f_aerosol_MossB_col=0._r8
+  allocate(fAeroScalar_col(JY,JX));fAeroScalar_col=0._r8
+  allocate(SeedCDeposition_pft(JP,JY,JX));SeedCDeposition_pft=0._r8
+  allocate(NWetDep_col(JY,JX)); NWetDep_col=0._r8
   allocate(tlai_mon_pft(12,JP,JY,JX));tlai_mon_pft=0._r8
   allocate(tsai_mon_pft(12,JP,JY,JX));tsai_mon_pft=0._r8
   allocate(tlai_day_pft(JP,JY,JX));tlai_day_pft=0._r8
@@ -154,7 +176,9 @@ implicit none
   allocate(height_top_mon_pft(12,JP,JY,JX)); height_top_mon_pft=0._r8
   allocate(height_bot_mon_pft(12,JP,JY,JX)); height_bot_mon_pft=0._r8
 
-  allocate(trcs_solcoef_col(idg_beg:idg_NH3,JY,JX));
+  allocate(EMS_Modify_Scalar_col(JY,JX)); EMS_Modify_Scalar_col = 1._r8
+  allocate(srad_scalar_col(JY,JX));srad_scalar_col=1._r8
+  allocate(trcs_solcoef_col(idg_beg:idg_NH3,JY,JX)); trcs_solcoef_col=0._r8
   allocate(Eco_RadSW_col(JY,JX)); Eco_RadSW_col=0._r8
   allocate(GDD_col(JY,JX)); GDD_col=0._r8
   allocate(TDTPX(12,JY,JX));    TDTPX=0._r8
@@ -176,7 +200,7 @@ implicit none
   allocate(DayLensCurr_col(JY,JX));        DayLensCurr_col=0._r8
   allocate(DayLenthPrev_col(JY,JX));        DayLenthPrev_col=0._r8
   allocate(DayLenthMax_col(JY,JX));        DayLenthMax_col=0._r8
-  allocate(OMEGAG(NumOfSkyAzimuthSects,JY,JX));  OMEGAG=0._r8
+  allocate(OMEGA2Ground(NumOfSkyAzimuthSects,JY,JX));  OMEGA2Ground=0._r8
   allocate(LWRadSky_col(JY,JX));         LWRadSky_col=0._r8
   allocate(TRAD_col(JY,JX));        TRAD_col=0._r8
   allocate(HUDX_col(JY,JX));        HUDX_col=0._r8
@@ -201,12 +225,13 @@ implicit none
   allocate(H2GE_col(JY,JX));        H2GE_col=0._r8
   allocate(CO2E_col(JY,JX));        CO2E_col=0._r8
   allocate(ARGE_col(JY,JX));        ARGE_col=0._r8
-  allocate(SolarNoonHour_col(JY,JX));       SolarNoonHour_col=0._r8
+  allocate(SolarNoonHourYM_col(JY,JX));       SolarNoonHourYM_col=0._r8
+  allocate(SolarNoonHour_col(JY,JX)); SolarNoonHour_col=0._r8
   allocate(RadSWDirect_col(JY,JX));        RadSWDirect_col=0._r8
   allocate(RadSWDiffus_col(JY,JX));        RadSWDiffus_col=0._r8
   allocate(RadDirectPAR_col(JY,JX));        RadDirectPAR_col=0._r8
   allocate(RadPARDiffus_col(JY,JX));        RadPARDiffus_col=0._r8
-  allocate(SineSunInclAngle_col(JY,JX));        SineSunInclAngle_col=0._r8
+  allocate(SineSunInclinationAngle_col(JY,JX));        SineSunInclinationAngle_col=0._r8
   allocate(SineSunInclAnglNxtHour_col(JY,JX));       SineSunInclAnglNxtHour_col=0._r8
   allocate(TLEX_col(JY,JX));        TLEX_col=0._r8
   allocate(TSHX_col(JY,JX));        TSHX_col=0._r8
@@ -243,6 +268,15 @@ implicit none
   use abortutils, only : destroy
   implicit none
 
+  call destroy(f_aerosol_DOM_col)
+  call destroy(f_aerosol_DeadMB_col)
+  call destroy(f_aerosol_LiveMB_col)
+  call destroy(f_aerosol_DeadNMB_col)
+  call destroy(f_aerosol_MossB_col)
+  call destroy(f_aerosol_LichB_col)
+  call destroy(fAeroScalar_col)
+  call destroy(SeedCDeposition_pft)
+  call destroy(NWetDep_col)
   call destroy(height_bot_mon_pft)  
   call destroy(height_top_mon_pft)
   call destroy(tlai_mon_pft)
@@ -268,7 +302,7 @@ implicit none
   call destroy(DayLensCurr_col)
   call destroy(DayLenthPrev_col)
   call destroy(DayLenthMax_col)
-  call destroy(OMEGAG)
+  call destroy(OMEGA2Ground)
   call destroy(LWRadSky_col)
   call destroy(TRAD_col)
   call destroy(HUDX_col)
@@ -282,7 +316,8 @@ implicit none
   call destroy(PrecIndirect2Grnd_col)
   call destroy(CO2EI_col)
   call destroy(CCO2EI_gperm3_col)
-
+  call destroy(srad_scalar_col)
+  call destroy(EMS_Modify_Scalar_col)
   call destroy(AtmGasCgperm3_col)
   call destroy(AtmGmms_col)
   call destroy(TKS_ref_vr)
@@ -294,13 +329,14 @@ implicit none
   call destroy(CH4E_col)
   call destroy(H2GE_col)
   call destroy(trcs_solcoef_col)
+  call destroy(SolarNoonHourYM_col)
   call destroy(SolarNoonHour_col)
   call destroy(CO2E_col)
   call destroy(RadSWDirect_col)
   call destroy(RadSWDiffus_col)
   call destroy(RadDirectPAR_col)
   call destroy(RadPARDiffus_col)
-  call destroy(SineSunInclAngle_col)
+  call destroy(SineSunInclinationAngle_col)
   call destroy(SineSunInclAnglNxtHour_col)
   call destroy(TLEX_col)
   call destroy(TSHX_col)

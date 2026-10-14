@@ -57,7 +57,7 @@ module readsmod
   PBOT_hrly(:,:)  = clim_var%Atm_kPa
 
   WindMesureHeight_col(:,:) = 0.5_r8
-  SolarNoonHour_col(:,:)    = 12._r8
+  SolarNoonHourYM_col(:,:)    = 12._r8
   pH_rain_col(:,:)          = 7._r8
   CN4RI_col(:,:)                = 0._r8
   CNORI_col(:,:)                = 0._r8
@@ -98,7 +98,7 @@ module readsmod
   integer :: LPY,IX
   CHARACTER(len=16) :: OUTW,OUTI,OUTT,OUTN,OUTF
   CHARACTER(len=4) :: CHARY
-  character(len=12) :: fire_event_entry
+  character(len=21) :: fire_event_entry
   integer :: IDY,IFLG3,I,ICHECK
 
 ! begin_execution
@@ -234,9 +234,10 @@ module readsmod
 !
   if(use_fire)then
     if(check_fire(yearc,fire_event_entry))then
-      call ReadFire(fire_event_entry,NHW,NHE,NVN,NVS)
+      call ReadFire(yearc,fire_event_entry,NHW,NHE,NVN,NVS)
     endif
   endif
+
   IF(trim(soil_mgmt_in).NE.'NO')THEN
     call ReadManagementFiles(yeari)
   ENDIF
@@ -244,7 +245,7 @@ module readsmod
 
   call GetAtmGts(yearc,NHW,NHE,NVN,NVS)
   call PrintInfo('end '//subname)
-
+  
   RETURN
   END subroutine ReadClimSoilForcing
 !------------------------------------------------------------------------------------------
@@ -347,10 +348,10 @@ module readsmod
   D8970: DO NX=NHW,NHE
     D8975: DO NY=NVN,NVS
       WindMesureHeight_col(NY,NX) = Z0G         !windspeed meast height
-      SolarNoonHour_col(NY,NX)    = ZNOONG
-      pH_rain_col(NY,NX)           = PHRG
-      CN4RI_col(NY,NX)                = CN4RIG
-      CNORI_col(NY,NX)                = CNORIG
+      SolarNoonHourYM_col(NY,NX)    = ZNOONG
+      pH_rain_col(NY,NX)          = PHRG
+      CN4RI_col(NY,NX)            = CN4RIG
+      CNORI_col(NY,NX)            = CNORIG
       NH4_rain_mole_conc(NY,NX)   = CN4RIG
       NO3_rain_mole_conc(NY,NX)   = CNORIG
       H2PO4_rain_mole_conc(NY,NX) = CPORG

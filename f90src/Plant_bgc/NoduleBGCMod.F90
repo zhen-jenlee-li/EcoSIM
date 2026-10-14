@@ -5,7 +5,15 @@ module NoduleBGCMod
   use DebugToolMod,  only: PrintInfo
   use abortutils  ,  only: endrun
   use EcosimConst
-  use PlantAPIData
+  use PlantAPICommonData
+  use PlantSiteAPIData, only : plt_site
+  use PlantMorphologyAPIData, only : plt_morph
+  use PlantPhenologyAPIData, only : plt_pheno
+  use PlantSoilChemistryAPIData, only : plt_soilchem
+  use PlantAllometryAPIData, only : plt_allom
+  use PlantBiomassAPIData, only : plt_biom
+  use PlantBGCRatesAPIData, only : plt_bgcr
+  use PlantRootBGCAPIData, only : plt_rbgc
   use PlantMathFuncMod
   use PlantBGCPars
   implicit none
@@ -23,6 +31,7 @@ module NoduleBGCMod
   implicit none
   integer, intent(in) :: I,J,NZ,NB
   real(r8), intent(in) :: TFN5,WFNG
+  character(len=*), parameter :: subname='CanopyNoduleBiochemistry'
   integer :: M
   real(r8) :: ZPOOLD
   real(r8) :: CCC,CNC,CPC
@@ -58,7 +67,7 @@ module NoduleBGCMod
     NU                        => plt_site%NU                         ,& !input  :current soil surface layer number, [-]
     ZERO                      => plt_site%ZERO                       ,& !input  :threshold zero for numerical stability, [-]
     AREA3                     => plt_site%AREA3                      ,& !input  :soil cross section area (vertical plane defined by its normal direction), [m2]
-    k_fine_litr               => pltpar%k_fine_litr                  ,& !input  :fine litter complex id
+    k_fine_comp               => pltpar%k_fine_comp                  ,& !input  :fine litter complex id
     PlantElmAllocMat4Litr     => plt_soilchem%PlantElmAllocMat4Litr  ,& !input  :litter kinetic fraction, [-]
     iPlantNfixType_pft        => plt_morph%iPlantNfixType_pft        ,& !input  :N2 fixation type,[-]
     fTCanopyGroth_pft         => plt_pheno%fTCanopyGroth_pft         ,& !input  :canopy temperature growth function, [-]
@@ -79,20 +88,22 @@ module NoduleBGCMod
     NodulInfectElms_pft       => plt_bgcr%NodulInfectElms_pft        ,& !inoput :nodule infection chemical element mass, [g d-2]
     CanopyNonstElms_brch      => plt_biom%CanopyNonstElms_brch       ,& !inoput :branch nonstructural element, [g d-2]
     CanopyNodulNonstElms_brch => plt_biom%CanopyNodulNonstElms_brch  ,& !inoput :branch nodule nonstructural element, [g d-2]
+    RNFixCO2_pft              => plt_bgcr%RNFixCO2_pft               ,& !inoput :CO2 respired by nodules, [gC d-2]
     CanopyNodulStrutElms_brch => plt_biom%CanopyNodulStrutElms_brch   & !inoput :branch nodule structural element, [g d-2]
   )
+  call PrintInfo('beg '//subname)
 !     iPlantNfixType_pft=N2 fixation: 4,5,6=rapid to slow canopy symbiosis
 !
-  CanopyN2Fix_pft(NZ)=0._r8
+  
   IF(is_canopy_N2fix(iPlantNfixType_pft(NZ)))THEN
-!
-!     INITIAL INFECTION
-!
-!     WTNDB,WTNDBN,WTNDBP=bacterial C,N,P mass
-!     NodulBiomCatInfection=initial bacterial mass at infection
-!     AREA=grid cell area
-!     CNND,rPCNoduler_pft=bacterial N:C,P:C ratio from PFT file
-!
+    !
+    !     INITIAL INFECTION
+    !
+    !     WTNDB,WTNDBN,WTNDBP=bacterial C,N,P mass
+    !     NodulBiomCatInfection=initial bacterial mass at infection
+    !     AREA=grid cell area
+    !     CNND,rPCNoduler_pft=bacterial N:C,P:C ratio from PFT file
+    !
     
     IF(CanopyNodulStrutElms_brch(ielmc,NB,NZ).LE.0.0_r8)THEN    
       NoduleInfectE(ielmc)=NodulBiomCatInfection*AREA3(NU)
@@ -104,18 +115,18 @@ module NoduleBGCMod
         NodulInfectElms_pft(NE,NZ)          = NodulInfectElms_pft(NE,NZ)+NoduleInfectE(NE)
       ENDDO
     ENDIF
-!
-!     O2-UNCONSTRAINED RESPIRATION RATES BY HETEROTROPHIC AEROBES
-!     IN NODULE FROM SPECIFIC OXIDATION RATE, ACTIVE BIOMASS,
-!     NON-STRUCTURAL C CONCENTRATION, MICROBIAL C:N:P FACTOR,
-!     AND TEMPERATURE
-!
-!     WTNDB,WTNDBN,WTNDBP=bacterial C,N,P mass
-!     CPOLNB,ZPOLNB,PPOLNB=nonstructural C,N,P in bacteria
-!     NodulNonstElmConc(ielmc),NodulNonstElmConc(ielmn),NodulNonstElmConc(ielmp)=nonstructural C,N,P concn in bacteria
-!     CNKI,CPKI=nonstructural N,P inhibition constant on growth
-!     FCNPF=N,P constraint to bacterial activity
-!
+    !
+    !     O2-UNCONSTRAINED RESPIRATION RATES BY HETEROTROPHIC AEROBES
+    !     IN NODULE FROM SPECIFIC OXIDATION RATE, ACTIVE BIOMASS,
+    !     NON-STRUCTURAL C CONCENTRATION, MICROBIAL C:N:P FACTOR,
+    !     AND TEMPERATURE
+    !
+    !     WTNDB,WTNDBN,WTNDBP=bacterial C,N,P mass
+    !     CPOLNB,ZPOLNB,PPOLNB=nonstructural C,N,P in bacteria
+    !     NodulNonstElmConc(ielmc),NodulNonstElmConc(ielmn),NodulNonstElmConc(ielmp)=nonstructural C,N,P concn in bacteria
+    !     CNKI,CPKI=nonstructural N,P inhibition constant on growth
+    !     FCNPF=N,P constraint to bacterial activity
+    !
     IF(CanopyNodulStrutElms_brch(ielmc,NB,NZ).GT.ZERO4Groth_pft(NZ))THEN
       DO NE=1,NumPlantChemElms
         NodulNonstElmConc(NE)=AZMAX1(CanopyNodulNonstElms_brch(NE,NB,NZ)/CanopyNodulStrutElms_brch(ielmc,NB,NZ))
@@ -155,8 +166,9 @@ module NoduleBGCMod
     !     FCNPF=N,P constraint to bacterial activity
     !     WFNG=growth function of canopy water potential
     !
+    !Cap the temperature- and water-adjusted demand against available nonstructural C.
     RespNonst_Oltd=AZMAX1(AMIN1(CanopyNodulNonstElms_brch(ielmc,NB,NZ),&
-      VMXO*CanopyNodulStrutElms_brch(ielmc,NB,NZ))*FCNPF*fTCanopyGroth_pft(NZ)*WFNG)*SPNDLI
+      VMXO*CanopyNodulStrutElms_brch(ielmc,NB,NZ)*FCNPF*fTCanopyGroth_pft(NZ)*WFNG))*SPNDLI
 
     !     CPOOLNX=CanopyNodulNonstElms_brch(ielmc,NB,NZ)
     !     VMXOX=VMXO*CanopyNodulStrutElms_brch(ielmc,NB,NZ)*FCNPF*fTCanopyGroth_pft(NZ)*WFNG
@@ -211,8 +223,8 @@ module NoduleBGCMod
     !     RCCC,RCCN,RCCP=remobilization coefficient for C,N,P
     !     RCCZN,RCCYN=min,max fractions for bacteria C recycling
     !     RCCXN,RCCQN=max fractions for bacteria N,P recycling
-    !     CanopyLeafSheathC_brch=leaf+petiole mass
-    !     CCNDLB=bacteria:leaf+petiole ratio
+    !     CanopyLeafSheathC_brch=leaf+PetolSheth mass
+    !     CCNDLB=bacteria:leaf+PetolSheth ratio
     !     RDNDBX=effect of CCNDLB on bacteria decomposition rate
     !     SPNDX=specific bacterial decomposition rate at current CCNDLB
     !     SPNDL=specific decomposition rate by bacterial N2 fixers
@@ -306,6 +318,7 @@ module NoduleBGCMod
     !     Eco_AutoR_CumYr_col=total autotrophic respiration
     !
     RCO2T                     = AMIN1(Rmaint,RespNonst_Oltd)+NoduleCResp+NodulELmSenes2Recyc(ielmc)
+    RNFixCO2_pft(NZ)          = RNFixCO2_pft(NZ)+RCO2T
     CanopyGrosRCO2_pft(NZ)    = CanopyGrosRCO2_pft(NZ)-RCO2T
     CanopyRespC_CumYr_pft(NZ) = CanopyRespC_CumYr_pft(NZ)-RCO2T
     CO2NetFix_pft(NZ)         = CO2NetFix_pft(NZ)-RCO2T
@@ -321,7 +334,7 @@ module NoduleBGCMod
     !
     D6470: DO M=1,jsken
       DO NE=1,NumPlantChemElms
-        LitrfallElms_pvr(NE,M,k_fine_litr,0,NZ)=LitrfallElms_pvr(NE,M,k_fine_litr,0,NZ) &
+        LitrfallElms_pvr(NE,M,k_fine_comp,0,NZ)=LitrfallElms_pvr(NE,M,k_fine_comp,0,NZ) &
           +PlantElmAllocMat4Litr(NE,ifoliar,M,NZ)*(NoduleElmntDecay2Litr(NE)+NodulELmSenes2Litr(NE))
       ENDDO
     ENDDO D6470
@@ -365,12 +378,12 @@ module NoduleBGCMod
     !     FROM NON-STRUCTURAL C,N,P CONCENTRATION DIFFERENCES
     !
     !     CPOOL,ZPOOL,PPOOL=branch non-structural C,N,P mass
-    !     CanopyLeafSheathC_brch=leaf+petiole C mass
+    !     CanopyLeafSheathC_brch=leaf+PetolSheth C mass
     !     WTNDB=bacterial C mass
     !     NodulBiomCatInfection=initial bacterial mass at infection
     !     FXRN=rate constant for plant-bacteria nonstructural C,N,P exchange
     !     CCNGB=parameter to calculate nonstructural C,N,P exchange
-    !     CCNDLB=bacteria:leaf+petiole ratio
+    !     CCNDLB=bacteria:leaf+PetolSheth ratio
     !     XFRE(ielmc),XFRE(ielmn),XFRE(ielmp)=nonstructural C,N,P transfer
     !     CPOLNB,ZPOLNB,PPOLNB=nonstructural C,N,P in bacteria
     !
@@ -404,6 +417,7 @@ module NoduleBGCMod
       ENDIF
     ENDIF
   ENDIF
+  call PrintInfo('end '//subname)
   end associate
   end subroutine CanopyNoduleBiochemistry
 
@@ -438,6 +452,8 @@ module NoduleBGCMod
   real(r8) :: NodulELmSenes2Recyc(NumPlantChemElms)
   real(r8) :: RespNonst_OUltd,RXNDLM,RGNDLM
   real(r8) :: RSNDLM
+  real(r8) :: NoduleRemobilizableC !structural C available for respiration after background decay
+  real(r8) :: NoduleMaintStructC_OUltd,NoduleMaintStructC_Oltd !potential/actual structural C respired for maintenance
   real(r8) :: SPNDLI
   real(r8) :: SPNDX
   real(r8) :: WTRTD1,WTNDL1,WTRTDT
@@ -456,10 +472,11 @@ module NoduleBGCMod
     AREA3                   => plt_site%AREA3                     ,& !input  :soil cross section area (vertical plane defined by its normal direction), [m2]
     ZERO                    => plt_site%ZERO                      ,& !input  :threshold zero for numerical stability, [-]
     fTgrowRootP_vr          => plt_pheno%fTgrowRootP_vr           ,& !input  :root layer temperature growth functiom, [-]
+    MaxNumRootLays          => plt_site%MaxNumRootLays            ,& !input  :maximum root layer number,[-]
     NoduGrowthYield_pft     => plt_allom%NoduGrowthYield_pft      ,& !input  :nodule growth yield, [g g-1]
     rNCNodule_pft           => plt_allom%rNCNodule_pft            ,& !input  :nodule N:C ratio, [gN gC-1]
     rPCNoduler_pft          => plt_allom%rPCNoduler_pft           ,& !input  :nodule P:C ratio, [gP gC-1]
-    k_fine_litr             => pltpar%k_fine_litr                 ,& !input  :fine litter complex id
+    k_fine_comp             => pltpar%k_fine_comp                 ,& !input  :fine litter complex id
     iroot                   => pltpar%iroot                       ,& !input  :group id of plant root litter
     fRootGrowPSISense_pvr   => plt_pheno%fRootGrowPSISense_pvr    ,& !input  :water stress to plant root growth, [-]
     RAutoRootO2Limter_rpvr  => plt_rbgc%RAutoRootO2Limter_rpvr    ,& !input  :O2 constraint to root respiration (0-1), [-]
@@ -479,6 +496,7 @@ module NoduleBGCMod
     RootNodulNonstElms_rpvr => plt_biom%RootNodulNonstElms_rpvr   ,& !inoput :layered root nonstructural element, [g d-2]
     RootMycoNonstElms_rpvr  => plt_biom%RootMycoNonstElms_rpvr    ,& !inoput :layered root nonstructural element, [g d-2]
     RCO2Nodule_pvr          => plt_bgcr%RCO2Nodule_pvr            ,& !inoput :layered root nodule respiration, [gC d-2 h-1]
+    RNFixCO2_pft            => plt_bgcr%RNFixCO2_pft              ,& !inoput :CO2 respired by nodules, [gC d-2]    
     RootN2Fix_pvr           => plt_bgcr%RootN2Fix_pvr              & !output :root N2 fixation, [gN d-2 h-1]
   )
 
@@ -492,11 +510,25 @@ module NoduleBGCMod
 !  call SumRootNoduleBiome(I,J,NZ,RootNoduleElms_beg)
   NoduleLitrfall(:)=0._r8
   IF(is_root_N2fix(iPlantNfixType_pft(NZ)))THEN
-    D5400: DO L=NU,NMaxRootBotLayer_pft(NZ)
+    D5400: DO L=NU,MaxNumRootLays
+      if(L.GT.NMaxRootBotLayer_pft(NZ))then
+        DO NE=1,NumPlantChemElms
+          if(RootNodulStrutElms_rpvr(NE,L,NZ).GT.0._r8 .or. RootNodulNonstElms_rpvr(NE,L,NZ).GT.0._r8)then      
+            D6371: DO M=1,jsken
+              dELoss=PlantElmAllocMat4Litr(NE,iroot,M,NZ)*AZMAX1(RootNodulStrutElms_rpvr(NE,L,NZ)+RootNodulNonstElms_rpvr(NE,L,NZ))
+              LitrfallElms_pvr(NE,M,k_fine_comp,L,NZ)=LitrfallElms_pvr(NE,M,k_fine_comp,L,NZ)+dELoss
+              NoduleLitrfall(NE)=  NoduleLitrfall(NE)+dELoss
+            ENDDO D6371
+            RootNodulStrutElms_rpvr(NE,L,NZ)=0._r8
+            RootNodulNonstElms_rpvr(NE,L,NZ)=0._r8
+          endif  
+        ENDDO
+        cycle
+      endif
       IF(PopuRootMycoC_pvr(ipltroot,L,NZ).GT.ZERO4LeafVar_pft(NZ))THEN
-!
-!     INITIAL INFECTION
-!
+        !
+        !     INITIAL INFECTION
+        !
         IF(RootNodulStrutElms_rpvr(ielmc,L,NZ).LE.0.0_r8)THEN
           NoduleInfectE(ielmc)=NodulBiomCatInfection*AREA3(NU)
           NoduleInfectE(ielmn)=NodulBiomCatInfection*AREA3(NU)*rNCNodule_pft(NZ)
@@ -558,9 +590,10 @@ module NoduleBGCMod
         !     fRootGrowPSISense=growth function of root water potential
 !
         CPOOLNX         = RootNodulNonstElms_rpvr(ielmc,L,NZ)
+        !Cap the adjusted demand before applying the physiological oxygen factor below.
         RespNonst_OUltd = AZMAX1(AMIN1(RootNodulNonstElms_rpvr(ielmc,L,NZ) &
-          ,VMXO*RootNodulStrutElms_rpvr(ielmc,L,NZ))*FCNPF*fTgrowRootP_vr(L,NZ) &
-          *fRootGrowPSISense_pvr(ipltroot,L,NZ))*SPNDLI
+          ,VMXO*RootNodulStrutElms_rpvr(ielmc,L,NZ)*FCNPF*fTgrowRootP_vr(L,NZ) &
+          *fRootGrowPSISense_pvr(ipltroot,L,NZ)))*SPNDLI
         !
         !     O2-LIMITED NODULE RESPIRATION FROM 'WFR' IN 'UPTAKE'
         !
@@ -613,7 +646,7 @@ module NoduleBGCMod
         ENDIF
         RootN2Fix_pvr(L,NZ) = Rauto4Nfix_rvr*EN2F
         RootN2Fix_pft(NZ)   = RootN2Fix_pft(NZ)+RootN2Fix_pvr(L,NZ)
-
+        
         !
         !     NODULE C,N,P REMOBILIZATION AND DECOMPOSITION
         !
@@ -627,8 +660,6 @@ module NoduleBGCMod
         !     SPNDX=specific bacterial decomposition rate at current CCNDLR
         !     WTNDL,WTNDLN,WTNDLP=bacterial C,N,P mass
         !     NoduleElmDecayLoss(ielmc),NoduleElmDecayLoss(ielmn),NoduleElmDecayLoss(ielmp)=bacterial C,N,P loss from decomposition
-        !     NoduleElmntDecay2Litr(ielmc),NoduleElmntDecay2Litr(ielmn),NoduleElmntDecay2Litr(ielmp)=bacterial C,N,P decomposition to LitrFall
-        !     NodulElmDecayRecyc(ielmc),NodulElmDecayRecyc(ielmn),NodulElmDecayRecyc(ielmp)=bacterial C,N,P decomposition to recycling
         !
         RCCC  = RCCZN+CCC*RCCYN
         RCCN  = CNC*RCCXN
@@ -682,10 +713,20 @@ module NoduleBGCMod
         !     NodulELmSenes2Litr(:)=bacterial C,N,P senescence to LitrFall
         !     NodulELmSenes2Recyc(:)=bacterial C,N,P senescence to recycling
         !
-        IF(RSNDL.GT.0.0_r8 .AND. RootNodulStrutElms_rpvr(ielmc,L,NZ).GT.ZERO4Groth_pft(NZ) .AND. RCCC.GT.ZERO)THEN
-          NodulELmLoss2Senes(ielmc)=RSNDL/RCCC
-          NodulELmLoss2Senes(ielmn)=NodulELmLoss2Senes(ielmc)*RootNodulStrutElms_rpvr(ielmn,L,NZ)/RootNodulStrutElms_rpvr(ielmc,L,NZ)
-          NodulELmLoss2Senes(ielmp)=NodulELmLoss2Senes(ielmc)*RootNodulStrutElms_rpvr(ielmp,L,NZ)/RootNodulStrutElms_rpvr(ielmc,L,NZ)
+        NoduleMaintStructC_OUltd=0._r8
+        NoduleMaintStructC_Oltd=0._r8
+        IF(RootNodulStrutElms_rpvr(ielmc,L,NZ).GT.ZERO4Groth_pft(NZ) .AND. RCCC.GT.ZERO)THEN
+          !Background decay and maintenance must not consume the same structural C.
+          NoduleRemobilizableC     = AZMAX1(RootNodulStrutElms_rpvr(ielmc,L,NZ)-NoduleElmDecayLoss(ielmc))*RCCC
+          NoduleMaintStructC_OUltd = AMIN1(RSNDLM,NoduleRemobilizableC)
+
+          !Apply the physiological oxygen factor to structural respiration as for other roots.
+          NoduleMaintStructC_Oltd=AMIN1(RSNDL,NoduleRemobilizableC)*RAutoRootO2Limter_rpvr(ipltroot,L,NZ)
+
+          !Derive all actual C/N/P losses, litter, and recycling from this one payment.
+          NodulELmLoss2Senes(ielmc) = NoduleMaintStructC_Oltd/RCCC
+          NodulELmLoss2Senes(ielmn) = NodulELmLoss2Senes(ielmc)*RootNodulStrutElms_rpvr(ielmn,L,NZ)/RootNodulStrutElms_rpvr(ielmc,L,NZ)
+          NodulELmLoss2Senes(ielmp) = NodulELmLoss2Senes(ielmc)*RootNodulStrutElms_rpvr(ielmp,L,NZ)/RootNodulStrutElms_rpvr(ielmc,L,NZ)
 
           NodulELmSenes2Litr(ielmc)=NodulELmLoss2Senes(ielmc)*(1.0_r8-RCCC)
           NodulELmSenes2Litr(ielmn)=NodulELmLoss2Senes(ielmn)*(1.0_r8-RCCC)*(1.0_r8-RCCN)
@@ -701,12 +742,14 @@ module NoduleBGCMod
         !
         !     TOTAL NODULE RESPIRATION is added to root respiration
         !
-        RCO2TM                            = AMIN1(Rmaint,RespNonst_OUltd)+RGNDLM+NodulELmSenes2Recyc(ielmc)
+        !Potential respiration uses its own structural payment, independent of oxygen stress.
+        RCO2TM                            = AMIN1(Rmaint,RespNonst_OUltd)+RGNDLM+NoduleMaintStructC_OUltd
         RCO2T                             = AMIN1(Rmaint,RespNonst_Oltd)+NoduleCResp+NodulELmSenes2Recyc(ielmc)
         RootRespPotent_pvr(ipltroot,L,NZ) = RootRespPotent_pvr(ipltroot,L,NZ)+RCO2TM
         RootCO2EmisPot_pvr(ipltroot,L,NZ) = RootCO2EmisPot_pvr(ipltroot,L,NZ)+RCO2T
         RootCO2Autor_pvr(ipltroot,L,NZ)   = RootCO2Autor_pvr(ipltroot,L,NZ)-RCO2T
         RCO2Nodule_pvr(L,NZ)              = RCO2Nodule_pvr(L,NZ)+RCO2T
+        RNFixCO2_pft(NZ)                  = RNFixCO2_pft(NZ)+RCO2T
         !
         !     NODULE LitrFall CAUSED BY REMOBILIZATION
         !
@@ -718,7 +761,7 @@ module NoduleBGCMod
         D6370: DO M=1,jsken
           DO NE=1,NumPlantChemElms
             dELoss=PlantElmAllocMat4Litr(NE,iroot,M,NZ)*AZMAX1(NoduleElmntDecay2Litr(NE)+NodulELmSenes2Litr(NE))
-            LitrfallElms_pvr(NE,M,k_fine_litr,L,NZ)=LitrfallElms_pvr(NE,M,k_fine_litr,L,NZ)+dELoss
+            LitrfallElms_pvr(NE,M,k_fine_comp,L,NZ)=LitrfallElms_pvr(NE,M,k_fine_comp,L,NZ)+dELoss
             NoduleLitrfall(NE)=  NoduleLitrfall(NE)+dELoss
           ENDDO
         ENDDO D6370
@@ -803,46 +846,11 @@ module NoduleBGCMod
       ENDIF
     ENDDO D5400
   ENDIF
+
   call PrintInfo('end '//subname)
   return
   call SumRootNoduleBiome(I,J,NZ,RootNoduleElms_end)
 
-  if(I==225)then
-    NE=ielmc
-    resp = sum(RCO2Nodule_pvr(NU:NMaxRootBotLayer_pft(NZ),NZ))
-    err  = RootNoduleElms_end(NE)-RootNoduleElms_beg(NE)+resp-NodulInfectElms_pft(NE,NZ)+NoduleLitrfall(NE)
-    write(1000,*)I+J/24.
-    write(1000,*)'C err',err
-    write(1000,*)'C end, beg =',RootNoduleElms_end(NE),RootNoduleElms_beg(NE),RootNoduleElms_end(NE)-RootNoduleElms_beg(NE)
-    WRITE(1000,*)'nodule resp=',resp
-    write(1000,*)'infectionC =',NodulInfectElms_pft(NE,NZ)
-    write(1000,*)'litrfall.  =',+NoduleLitrfall(NE)
-    if(abs(err)>1.e-4_r8)then
-      call endrun('C balance error test failure in '//trim(mod_filename)//' at line',__LINE__)      
-    endif
-    NE=ielmn
-    resp=sum(RootN2Fix_pvr(NU:NMaxRootBotLayer_pft(NZ),NZ))
-    err  = RootNoduleElms_end(NE)-RootNoduleElms_beg(NE)-NodulInfectElms_pft(NE,NZ)-resp+NoduleLitrfall(NE)
-    write(1000,*)'N err',err    
-    write(1000,*)'N end, beg =',RootNoduleElms_end(NE),RootNoduleElms_beg(NE),RootNoduleElms_end(NE)-RootNoduleElms_beg(NE)
-    write(1000,*)'N fix      =',resp
-    write(1000,*)'infectionN =',NodulInfectElms_pft(NE,NZ)    
-    write(1000,*)'litrfall.  =',NoduleLitrfall(NE)
-    if(abs(err)>1.e-5_r8)then
-      call endrun('N balance error test failure in '//trim(mod_filename)//' at line',__LINE__)      
-    endif
-
-    NE=ielmp
-    err  = RootNoduleElms_end(NE)-RootNoduleElms_beg(NE)-NodulInfectElms_pft(NE,NZ)+NoduleLitrfall(NE)
-    write(1000,*)'P err',err    
-    write(1000,*)'P end, beg =',RootNoduleElms_end(NE),RootNoduleElms_beg(NE),RootNoduleElms_end(NE)-RootNoduleElms_beg(NE)
-    write(1000,*)'infectionP =',NodulInfectElms_pft(NE,NZ)    
-    write(1000,*)'litrfall.  =',NoduleLitrfall(NE)
-    if(abs(err)>1.e-6_r8)then
-      call endrun('P balance error test failure in '//trim(mod_filename)//' at line',__LINE__)      
-    endif
-
-  endif
   end associate
   end subroutine RootNodulBiochemistry
 !----------------------------------------------------------------------------------------------------

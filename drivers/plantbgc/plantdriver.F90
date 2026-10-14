@@ -1,8 +1,8 @@
 program main
 !
-  use abortutils, only : endrun
+  use abortutils, only : endrun,iulog
   use fileUtil
-  use PlantMod
+  use PlantTestMod
 implicit none
   character(len=*), parameter :: mod_filename = &
   __FILE__
@@ -46,12 +46,12 @@ end subroutine usage
 ! ----------------------------------------------------------------------
 
 subroutine RunModel(namelist_buffer)
-  use ecosim_Time_Mod, only : ecosim_time_type
-  use ModelStatusType, only : model_status_type
-  use data_kind_mod  , only : r8 => DAT_KIND_R8
-  use PlantMod
+  use ecosim_Time_Mod, only: ecosim_time_type
+  use ModelStatusType, only: model_status_type
+  use data_kind_mod,   only: r8 => DAT_KIND_R8
+  use abortutils,      only: iulog
+  use PlantTestMod
   use bhistMod
-  use fileUtil
   implicit none
   character(len=*), intent(in) :: namelist_buffer
 

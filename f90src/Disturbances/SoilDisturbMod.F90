@@ -4,8 +4,11 @@ module SoilDisturbMod
   use data_kind_mod, only : r8 => DAT_KIND_R8
   use abortutils  , only : endrun
   use minimathmod, only : safe_adb
-  use MicrobialDataType
   use EcoSiMParDataMod, only : micpar
+  use MiniFuncMod,    only: gOC_to_m3_OM
+  use EcoSIMConfig,  only : NumMicbAFunGrupsPerCmplx,NumMicbHFunGrupsPerCmplx  
+  use DebugToolMod
+  use MicrobialDataType  
   use NitroPars
   use SOMDataType
   use ChemTranspDataType
@@ -41,6 +44,7 @@ module SoilDisturbMod
   !iSoilDisturbType_col=soil disturbance type 1-20:tillage,21=litter removal,22=fire,23-24=drainage
   implicit none
   integer, intent(in) :: I,J,NY,NX
+  character(len=*), parameter :: subname='SOMRemovalByDisturbance'
 
   integer :: L,K,M,N
   integer :: IFLGJ   !combustion flag, 0=yes, 1=no
@@ -63,13 +67,16 @@ module SoilDisturbMod
    iprotein => micpar%iprotein, &
    ilignin  => micpar%ilignin   &
   )
-  IF(J.EQ.INT(SolarNoonHour_col(NY,NX)) .AND. (iSoilDisturbType_col(I,NY,NX).EQ.itill_rmlitr .OR. iSoilDisturbType_col(I,NY,NX).EQ.itill_fire))THEN
-    IF(iSoilDisturbType_col(I,NY,NX).EQ.itill_fire)THEN
 
+  call PrintInfo('beg '//subname)
+  IF(J.EQ.INT(SolarNoonHour_col(NY,NX)) .AND. &
+    (iSoilDisturbType_col(I,NY,NX).EQ.itill_rmlitr .OR. iSoilDisturbType_col(I,NY,NX).EQ.itill_fire))THEN
+    IF(iSoilDisturbType_col(I,NY,NX).EQ.itill_fire)THEN
       !fire
       iResetSoilProf_col(NY,NX) = itrue
-      IFLGJ                     = 0
-      NLL                       = -1
+
+      IFLGJ = 0
+      NLL   = -1
       !identify burning depth
       D2945: DO L=0,NL_col(NY,NX)
         IF(L.EQ.0 .OR. L.GE.NUM_col(NY,NX))THEN
@@ -86,7 +93,7 @@ module SoilDisturbMod
     ELSE
       NLL=0
     ENDIF
-
+    
     D2950: DO L=0,NLL
       IF(NLL.GE.0)THEN
         IF(iSoilDisturbType_col(I,NY,NX).EQ.itill_fire)THEN
@@ -115,7 +122,7 @@ module SoilDisturbMod
             !
             !     REMOVE heterotrophic MICROBIAL BIOMASS
             !
-            D2960: DO N=1,NumMicbFunGrupsPerCmplx
+            D2960: DO N=1,NumMicbHFunGrupsPerCmplx
               DO NGL=JGniH(N),JGnfH(N)
                 DO M=1,nlbiomcp
                   MID=micpar%get_micb_id(M,NGL)
@@ -147,11 +154,11 @@ module SoilDisturbMod
         ENDDO D2970
 
 
-!          IF(L.NE.0.OR.(K.NE.3.AND.K.NE.4))THEN
-!
-!     REMOVE autotrophic MICROBIAL BIOMASS
-!
-        DO  N=1,NumMicbFunGrupsPerCmplx
+        !          IF(L.NE.0.OR.(K.NE.3.AND.K.NE.4))THEN
+        !
+        !     REMOVE autotrophic MICROBIAL BIOMASS
+        !
+        DO  N=1,NumMicbAFunGrupsPerCmplx
           DO NGL=JGniA(N),JGnfA(N)
             DO M=1,nlbiomcp
               MID=micpar%get_micb_id(M,NGL)
@@ -175,7 +182,7 @@ module SoilDisturbMod
             enddo
           enddo
         ENDDO
-!          ENDIF
+        !     ENDIF
 
         !
         !     REMOVE MICROBIAL RESIDUE
@@ -276,8 +283,8 @@ module SoilDisturbMod
             OMelm(ielmc)=OMelm(ielmc)+rmDOM(idom_doc)+rmDOM(idom_acetate)
             OMelm(ielmn)=OMelm(ielmn)+ONX
             OMelm(ielmp)=OMelm(ielmp)+OPX!
-!     REMOVE RESIDUE
-!
+            !     REMOVE RESIDUE
+            !
             D2930: DO M=1,jsken
               do NE=1,NumPlantChemElms
                 rmBiom(NE)=DCORPC*SolidOM_vr(NE,M,K,L,NY,NX)
@@ -338,17 +345,18 @@ module SoilDisturbMod
           ENDDO
         ENDIF
         SoilOrgM_vr(1:NumPlantChemElms,L,NY,NX)=dOMelm(1:NumPlantChemElms)
+        
         IF(L.EQ.0)THEN
           HFLXD        = 4.19E-06_r8*(ORGCX_vr(L,NY,NX)-SoilOrgM_vr(ielmc,L,NY,NX))*TKS_vr(L,NY,NX)
           HeatOut_lnds = HeatOut_lnds+HFLXD
         ENDIF
-        !     IF(L.EQ.0)THEN
-        !     VHeatCapacity_vr(0,NY,NX)=2.496E-06*SoilOrgM_vr(ielmc,0,NY,NX)+4.19*VLWatMicP_vr(0,NY,NX)
-        !    2+1.9274*VLiceMicP_vr(0,NY,NX)
-        !     ELSE
-        !     VHeatCapacity_vr(L,NY,NX)=VHeatCapacitySoilM_vr(L,NY,NX)+4.19*(VLWatMicP_vr(L,NY,NX)+VLWatMacP_vr(L,NY,NX))
-        !    2+1.9274*(VLiceMicP_vr(L,NY,NX)+VLiceMacP_vr(L,NY,NX))
-        !     ENDIF
+        IF(L.EQ.0)then
+          VHeatCapacity_vr(0,NY,NX)=cpw*VLWatMicP_vr(0,NY,NX)+cpi*VLiceMicP_vr(0,NY,NX)+cpo*gOC_to_m3_OM(SoilOrgM_vr(ielmc,L,NY,NX))
+        else
+          VHeatCapSolidSoil_vr(L,NY,NX) = VHeatCapMineralSoil_vr(L,NY,NX)+cpo*gOC_to_m3_OM(SoilOrgM_vr(ielmc,L,NY,NX))
+          VHeatCapacity_vr(L,NY,NX)     = VHeatCapMineralSoil_vr(L,NY,NX)+cpw*(VLWatMicP_vr(L,NY,NX)+VLWatMacP_vr(L,NY,NX)) &
+            +cpi*(VLiceMicP_vr(L,NY,NX)+VLiceMacP_vr(L,NY,NX))
+        endif    
 
         IF(iSoilDisturbType_col(I,NY,NX).EQ.itill_rmlitr)THEN
           DO NE=1,NumPlantChemElms
@@ -378,6 +386,7 @@ module SoilDisturbMod
       ENDIF
     ENDDO D2950
   ENDIF
+  call PrintInfo('end '//subname)
   end associate
   end subroutine SOMRemovalByDisturbance
 !------------------------------------------------------------------------------------------

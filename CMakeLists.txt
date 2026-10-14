@@ -1,12 +1,29 @@
 # NOTE: this is the old CMake file for compiling with a UNIX Makefile
-# Minimum CMake version, determined by hdf5.
-cmake_minimum_required (VERSION 3.5)
+# Fortran submodule dependency scanning requires CMake 3.12.
+cmake_minimum_required (VERSION 3.12)
 
 # Version numbers.
 set (ECOSIM_MAJOR_VERSION 0)
 set (ECOSIM_MINOR_VERSION 1)
 set (ECOSIM_PATCH_VERSION 0)
 set (ECOSIM_VERSION "${ECOSIM_MAJOR_VERSION}.${ECOSIM_MINOR_VERSION}.${ECOSIM_PATCH_VERSION}")
+
+  # This tells CMake/Clang to target version 26.0 specifically
+if (APPLE)
+    # Execute a system command to get the current SDK version (e.g., 26.0 or 15.1)
+    execute_process(
+        COMMAND xcrun --show-sdk-version
+        OUTPUT_VARIABLE CURRENT_SDK_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    # Only force the deployment target if it hasn't been set or is outdated
+    if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "${CURRENT_SDK_VERSION}" CACHE STRING "OSX Deployment Target" FORCE)
+    endif()
+
+    message(STATUS "Setting Apple Deployment Target to SDK Version: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+endif()
 
 set(TPL_INSTALL_PREFIX $ENV{AMANZI_TPLS_DIR})
 
@@ -83,6 +100,7 @@ message("-- CXX compiler is ${CMAKE_CXX_COMPILER} (${CMAKE_CXX_COMPILER_ID})")
 message("-- Fortran compiler is ${CMAKE_Fortran_COMPILER} (${CMAKE_Fortran_COMPILER_ID})")
 
 set_up_compilers()
+include(build_timing)
 
 if (BGC)
   set (ECOSIM_BGC 1)
@@ -175,7 +193,7 @@ if (ATS_ECOSIM)
     #Needed to share with ATS (probably an easier way to do this)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${NETCDF_CFLAGS} -fPIC")
-    set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} ${NETCDF_FFLAGS} -fPIC")
+    set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} ${NETCDF_FFLAGS} -fPIC -g -O0 -fbacktrace -fbounds-check")
 
     #What were these even for? are they neccesary?
     include_directories("${TPL_INSTALL_PREFIX}/include")

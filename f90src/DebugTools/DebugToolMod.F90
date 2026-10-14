@@ -1,7 +1,10 @@
 module DebugToolMod
   use data_kind_mod, only: r8 => DAT_KIND_R8
-  use fileUtil,      only: iulog
+  use abortutils,    only: iulog
   use EcoSIMCtrlMod, only: lverb
+  use GridDataType
+  use EcoSimConst
+  use SoilWaterDataType
 implicit none
   private
   character(len=*), parameter :: mod_filename =&
@@ -9,15 +12,22 @@ implicit none
 
   public :: PrintInfo
   public :: DebugPrint
-
+  public :: GetSoilWaterMass
   interface DebugPrint
     module procedure DebugPrint_real_arr
     module procedure DebugPrint_real_sp
+    module procedure DebugPrint_real_arrs
     module procedure DebugPrint_int
   end interface DebugPrint
-
+  public :: do_debug
 contains
 
+  pure function do_debug()result(ans)
+  implicit none
+  logical :: ans
+  
+  ans= lverb
+  end function do_debug
   !-----------------------------------------------------------------------
     subroutine PrintInfo(message)
     implicit none
@@ -43,6 +53,19 @@ contains
    write(*,fmt)vnames,'=',vals
 
    end subroutine DebugPrint_real_arr
+  !-----------------------------------------------------------------------
+
+   subroutine DebugPrint_real_arrs(vals)
+   implicit none
+   real(r8), intent(in) :: vals(:)
+   integer :: nvars
+
+   nvars=size(vals)
+   
+   if(.not.lverb)return
+   write(*,*)vals
+
+   end subroutine DebugPrint_real_arrs
 
   !-----------------------------------------------------------------------
 
@@ -65,4 +88,16 @@ contains
    write(iulog,*)vname,'=',val
    end subroutine DebugPrint_int
 
+  !-----------------------------------------------------------------------
+  function GetSoilWaterMass(NY,NX)result(mass)
+  implicit none
+  integer, intent(in) :: NY,NX
+  real(r8) :: mass
+  integer  :: L
+  mass = 0._r8
+  !add water in soil 
+  DO L=NU_col(NY,NX),NL_col(NY,NX)
+    mass = mass+ VLWatMicP_vr(L,NY,NX)+VLWatMacP_vr(L,NY,NX)+(VLiceMicP_vr(L,NY,NX)+VLiceMacP_vr(L,NY,NX))*DENSICE
+  ENDDO
+  END function GetSoilWaterMass
 end module DebugToolMod

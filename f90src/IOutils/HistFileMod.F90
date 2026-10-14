@@ -3,11 +3,11 @@ module HistFileMod
   use data_kind_mod, only : r8 => DAT_KIND_R8
   use ncdio_pio
   use netcdf
-  use fileUtil          , only : iulog,strip_null
-  use abortutils        , only : endrun
+  use fileUtil          , only : strip_null
+  use abortutils        , only : endrun,iulog
   use TestMod           , only : errMsg
   use GridConsts        , only : JZ,JS,MaxNumBranches,bounds,bounds_type,NumOfPlantMorphUnits
-  use GridConsts        , only : NumCanopyLayers,JP,NumGrowthStages,MaxNodesPerBranch  
+  use GridConsts        , only : NumCanopyLayers,JP,NumGrowthStages,MaxNodesPerBranch,MaxNumRootAxes  
   use ElmIDMod          , only : NumPlantChemElms  
   use data_const_mod    , only : spval => DAT_CONST_SPVAL
   use EcosimConst       , only : secspday
@@ -253,6 +253,7 @@ implicit none
   call ncd_defdim(lnfid, 'nbranches',MaxNumBranches,dimid)
   call ncd_defdim(lnfid, 'ngrstages',NumGrowthStages,dimid)
   call ncd_defdim(lnfid, 'elements',NumPlantChemElms,dimid)
+  call ncd_defdim(lnfid,'rootaxs',MaxNumRootAxes,dimid)
   call ncd_defdim(lnfid, 'nkinecomp',jsken,dimid)
   call ncd_defdim(lnfid, 'nomcomplx',jcplx,dimid)
   call ncd_defdim(lnfid, 'pmorphunits',NumOfPlantMorphUnits,dimid)
@@ -356,7 +357,7 @@ implicit none
   character(len=*), intent(in)           :: fname          ! field name
   character(len=*), intent(in)           :: units          ! units of field
   character(len=*), intent(in)           :: long_name      ! long name of field
-  character(len=1), intent(in)           :: avgflag          ! time averaging flag
+  character(len=1), intent(in)           :: avgflag        ! time averaging flag
   character(len=*), optional, intent(in) :: type1d_out     ! output type (from data type)
   character(len=*), optional, intent(in) :: standard_name  ! CF standard name
   real(r8)        , optional, pointer    :: ptr_gcell(:)   ! pointer to gridcell array
@@ -562,6 +563,8 @@ implicit none
       num2d = JZ
   case ('nbranches')
       num2d = MaxNumBranches
+  case ('rootaxs')    
+      num2d=MaxNumRootAxes
   case ('pmorphunits')
       num2d=NumOfPlantMorphUnits    
   case ('elements')    
@@ -650,6 +653,7 @@ implicit none
     if (present(avgflag)) then
        if ( avgflag /= ' ' .and. &   !is not defined
             avgflag /= 'A' .and. &   !is not temporal average
+            avgflag /= 'P' .and. &   !is not temporal average over positive values           
             avgflag /= 'I' .and. &   !is not instantaneous
             avgflag /= 'X' .and. &   !is not the maximum over the time period
             avgflag /= 'M') then     !is not the minimum over the time period
@@ -1180,7 +1184,7 @@ implicit none
     select case (avgflag)
     case (' ')
        tape(t)%hlist(n)%avgflag = masterlist(f)%avgflag(t)
-    case ('A','I','X','M')
+    case ('A','I','X','M','P')
        tape(t)%hlist(n)%avgflag = avgflag
     case default
        write(iulog,*) trim(subname),' ERROR: unknown avgflag=', avgflag
@@ -1210,6 +1214,8 @@ implicit none
     do f = 1,nfmaster
        select case (avgflag)
        case ('A')  !average
+          masterlist(f)%avgflag(t) = avgflag
+       case ('P')  !average over positive values
           masterlist(f)%avgflag(t) = avgflag
        case ('I')  !instantaneous
           masterlist(f)%avgflag(t) = avgflag
@@ -1310,8 +1316,7 @@ implicit none
     type1d_out     =  tape(t)%hlist(f)%field%type1d_out
     hpindex        =  tape(t)%hlist(f)%field%hpindex
     field          => esmptr_rs(hpindex)%ptr
-    call PrintInfo('beg '//subname)
-    if(lverb)print*,tape(t)%hlist(f)%field%name
+    call PrintInfo('beg '//subname)    
     ! set variables to check weights when allocate all pfts
 
        ! For data defined on the pft, col, and landunit we need to check if a point is active
@@ -1374,6 +1379,29 @@ implicit none
                 if (nacs(k,1) == 0) hbuf(k,1) = spval
              end if
           end do
+       case ('P') !average over positive numbers
+          if ( end1d .eq. ubound(field,1) ) then
+             k_offset = 0
+          else
+             k_offset = 1 - beg1d
+          endif
+          do k = beg1d,end1d
+             valid = .true.
+             if (check_active) then
+                if (.not. active(k)) valid = .false.
+             end if
+             if (valid) then
+                if (field(k+k_offset) /= spval .and. field(k+k_offset)>1.e-8_r8) then   ! add k_offset
+                   if (nacs(k,1) == 0) hbuf(k,1) = 0._r8
+                   hbuf(k,1) = hbuf(k,1) + field(k+k_offset)   ! add k_offset
+                   nacs(k,1) = nacs(k,1) + 1
+                else
+                   if (nacs(k,1) == 0) hbuf(k,1) = spval
+                end if
+             else
+                if (nacs(k,1) == 0) hbuf(k,1) = spval
+             end if
+          end do             
        case ('X') ! Maximum over time
           do k = beg1d,end1d
              valid = .true.
@@ -1556,6 +1584,26 @@ implicit none
                 end if
              end do
           end do
+       case ('P') ! Time average over values > 1.e-8
+          do j = 1,num2d
+             do k = beg1d,end1d
+                valid = .true.
+                if (check_active) then
+                   if (.not. active(k)) valid = .false.
+                end if
+                if (valid) then
+                   if (field(k-beg1d+1,j) /= spval .and. field(k-beg1d+1,j)>1.e-8_r8) then
+                      if (nacs(k,j) == 0) hbuf(k,j) = 0._r8
+                      hbuf(k,j) = hbuf(k,j) + field(k-beg1d+1,j)
+                      nacs(k,j) = nacs(k,j) + 1
+                   else
+                      if (nacs(k,j) == 0) hbuf(k,j) = spval
+                   end if
+                else
+                   if (nacs(k,j) == 0) hbuf(k,j) = spval
+                end if
+             end do
+          end do          
        case ('X') ! Maximum over time
           do j = 1,num2d
              do k = beg1d,end1d
@@ -1698,6 +1746,7 @@ implicit none
        ! Determine if end of history interval
        tape(t)%is_endhist = .false.
        if (tape(t)%nhtfrq==0) then   !monthly average
+          !by year for monthly output
           if (mon /= monm1) tape(t)%is_endhist = .true.
        else
           if (mod(nstep,tape(t)%nhtfrq) == 0) tape(t)%is_endhist = .true.
@@ -1762,7 +1811,7 @@ implicit none
              call etimer%get_ymdhs(ymdhs)
              write(iulog,*)
              write(iulog,*) trim(subname),' : Writing current time sample to local history file ', &
-                  trim(locfnh(t)),' at = ',ymdhs, &
+                  trim(locfnh(t)),' at = ',ymdhs, ' doy=',etimer%get_curr_doy(),&
                   ' for history time interval beginning at ', tape(t)%begtime, &
                   ' and ending at ',time
              write(iulog,*)
@@ -1804,7 +1853,7 @@ implicit none
                      trim(locfnh(t)),' at nstep = ', etimer%get_nstep()
                 write(iulog,*)
 !             endif
-	           call ncd_pio_closefile(nfid(t))
+             call ncd_pio_closefile(nfid(t))
              if (.not.if_stop .and. (tape(t)%ntimes/=tape(t)%mfilt)) then
                 call ncd_pio_openfile (nfid(t), trim(locfnh(t)), ncd_write)
              end if
@@ -1831,7 +1880,7 @@ implicit none
     do t = 1, ntapes
        if ( tape(t)%nhtfrq>=0 .and. ((if_disphist(t) .and. tape(t)%ntimes==tape(t)%mfilt) .or. lnyr) &
          .or. (if_disphist(t) .and. tape(t)%ntimes>=tape(t)%mfilt .and. tape(t)%nhtfrq<0 .and. lnyr)) then
-          print*,'htapwrap',lnyr,tape(t)%ntimes,tape(t)%mfilt
+          !print*,'htapwrap',lnyr,tape(t)%ntimes,tape(t)%mfilt
           tape(t)%ntimes = 0
        end if
     end do
@@ -1947,6 +1996,8 @@ implicit none
           select case (avgflag)
           case ('A')
              avgstr = 'mean'
+          case ('P')
+             avgstr = 'positive_mean'   
           case ('I')
              avgstr = 'point'
           case ('X')
@@ -2005,8 +2056,9 @@ implicit none
 
           ! Write history output.  Always output land and ocean runoff on xy grid.
           call PrintInfo(varname)
+          
           if (numdims == 1) then
-             if(lverb)print*,hist1do(beg1d_out:end1d_out)
+!             print*,hist1do(beg1d_out:end1d_out)
              call ncd_io(flag='write', varname=varname, &
                   dim1name=type1d_out, data=hist1do, ncid=nfid(t), nt=nt)
           else
@@ -2882,7 +2934,7 @@ implicit none
        nacs      => tape(t)%hlist(f)%nacs
        hbuf      => tape(t)%hlist(f)%hbuf
 
-       if (avgflag == 'A') then
+       if (avgflag == 'A' .or. avgflag == 'P') then
           aflag = .true.
        else
           aflag = .false.

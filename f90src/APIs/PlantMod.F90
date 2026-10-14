@@ -1,22 +1,27 @@
 module PlantMod
-  use data_kind_mod,     only: r8 => DAT_KIND_R8
+  use data_kind_mod,     only: r8 => DAT_KIND_R8,yearIJ_type
   use grosubsMod,        only: GrowPlants
   use PlantPhenolMod,    only: PhenologyUpdate
   use UptakesMod,        only: RootUptakes
   use PlantDisturbMod,   only: PrepLandscapeGrazing
   use PlantMgmtDataType, only: NP_col
   use MiniMathMod,       only: fixEXConsumpFlux
-  use EcoSIMCtrlMod,     only: lverb,ldo_sp_mode
+  use EcoSIMCtrlMod,     only: lverb, ldo_sp_mode
   use PlantDebugMod,     only: PrintRootTracer
   use LitterFallMod,     only: ReSeedPlants
+  use DebugToolMod,      only: PrintInfo
+  use InitPlantMod,      only: SeedDeposition  
   use PlantAPI4Uptake
   use TracerIDMod
   use GridDataType
   use PlantDataRateType
   use SoilBGCDataType
   use EcoSimSumDataType
-  use PlantAPIData  
+  use PlantAPICommonData
+  use PlantSiteAPIData, only : plt_site
   use PlantAPI
+  use ClimForcDataType
+  use PlantTraitDataType
   use PlantCanAPI
   use ExtractsMod
   use PlantBalMod
@@ -29,66 +34,94 @@ implicit none
 
   contains
 
-  subroutine PlantModel(I,J,NHW,NHE,NVN,NVS)
+  subroutine PlantModel(yearIJ,NHW,NHE,NVN,NVS)
   !
   !run the plant biogeochemistry model
   !
   implicit none
-  integer, intent(in) :: I,J
+  type(yearIJ_type), intent(in) :: yearIJ
   integer, intent(in) :: NHW,NHE,NVN,NVS
   real(r8) :: t1,tvegE(NumPlantChemElms)
-  integer :: NY,NX,NZ
+  real(r8) :: SeedCDeposition_1d(JP1), PPmax_1d(JP1)
 
+  integer :: NY,NX,NZ
+  character(len=*), parameter :: subname='PlantModel'
 333   FORMAT(A8)
 
+  call PrintInfo('beg '//subname)
   if(.not.ldo_sp_mode)then
-    call PrepLandscapeGrazing(I,J,NHW,NHE,NVN,NVS)
+    call PrepLandscapeGrazing(yearIJ%I,yearIJ%J,NHW,NHE,NVN,NVS)
     plt_site%PlantElemntStoreLandscape(:)=PlantElemntStoreLandscape(:)
   endif
 
   DO NX=NHW,NHE
     DO NY=NVN,NVS
-  
+
       if(ldo_sp_mode)then
         !do prescribed phenolgoy
-        call PlantUptakeAPISend(I,J,NY,NX)        
-        CALL ROOTUPTAKES(I,J)
-        call extracts(I,J)
-        call PlantUPtakeAPIRecv(I,J,NY,NX)
-      else
-        call  PlantAPISend(I,J,NY,NX)
+        call PlantUptakeAPISend(yearIJ%I,yearIJ%J,NY,NX)        
 
-        call EnterPlantBalance(I,J,NP_col(NY,NX))
+        CALL ROOTUPTAKES(yearIJ)
+        
+        call extracts(yearIJ)
+        
+        call PlantUPtakeAPIRecv(yearIJ%I,yearIJ%J,NY,NX)
+      else
+      
+        call  PlantAPISend(yearIJ,NY,NX)
+
+        call EnterPlantBalance(yearIJ,NP_col(NY,NX))
+
+        if(yearIJ%J.eq.1) then          
+          SeedCDeposition_1d = SeedCDeposition_pft(:,NY,NX)
+          PPmax_1d = PPmax_pft(:,NY,NX)
+          call SeedDeposition(yearIJ%I,SeedCDeposition_1d,PPmax_1d,NP_col(NY,NX))          
+        endif
 
         !Phenological update, determine living/active branches      
-        CALL PhenologyUpdate(I,J)
+        CALL PhenologyUpdate(yearIJ)
 
         !Predict uptake fluxes of nutrients and O2        
-        CALL ROOTUPTAKES(I,J)
+        CALL ROOTUPTAKES(yearIJ)
 
         !Do growth of active branches and roots
-        CALL GROWPLANTS(I,J)
+        CALL GROWPLANTS(yearIJ)
 
         !aggregate varaibles
-        CALL EXTRACTs(I,J)
+        CALL EXTRACTs(yearIJ)
+        
+        Call ReSeedPlants(yearIJ,NP_col(NY,NX))
+        
+        call ExitPlantBalance(yearIJ,NP_col(NY,NX))
 
-        DO NZ=1,NP_col(NY,NX)
-
-          Call ReSeedPlants(I,J,NZ)
-
-        ENDDO
-
-        call ExitPlantBalance(I,J,NP_col(NY,NX))
-
-        call PlantAPIRecv(I,J,NY,NX)
+        call PlantAPIRecv(yearIJ%I,yearIJ%J,NY,NX)
+        
       endif
 
     ENDDO
   ENDDO
+  
   PlantElemntStoreLandscape(:)=plt_site%PlantElemntStoreLandscape(:)
-
+  call PrintInfo('end '//subname)
 
   end subroutine PlantModel
+!------------------------------------------------------------------------------------------
+!  function test_active_plant(NY,NX)result(activeroot)
+  !
+  !Description:
+  !Check the existence of active plants
+!  implicit none
+!  integer, intent(in) :: NY,NX
+!  logical :: activeroot
+!  integer :: NZ
+
+!  activeroot=.false.
+!  DO NZ=1,NP_col(NY,NX)
+!    activeroot=IsPlantActive_pft(NZ,NY,NX).EQ.iTrue .and. PlantPopuLive_pft(NZ,NY,NX)>ZEROS(NY,NX)
+!    if(activeroot)return
+!  ENDDO
+!  end function test_active_plant
+
 !------------------------------------------------------------------------------------------
 
   subroutine PlantCanopyRadsModel(I,J,NY,NX,DepthSurfWatIce)

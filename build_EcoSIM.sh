@@ -1,4 +1,3 @@
-#!/bin/bash
 
 # ############################################################################ #
 #
@@ -8,7 +7,7 @@
 
 # A couple of helper functions:
 
-function status_message()
+status_message()
 {
   #Printing status messages in a nice format
   local GREEN='32m'
@@ -20,7 +19,7 @@ function status_message()
 }
 
 ############# EDIT THESE! ##################
-
+parallel_jobs=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
 debug=0
 mpi=0
 shared=0
@@ -40,12 +39,14 @@ print_help() {
     echo "  FC=<compiler>          Set Fortran compiler"
     echo "  --regression_test      Enable regression test"
     echo "  --debug                Enable debug mode"
+    echo "  -j, --jobs=<n>         Number of parallel build jobs (default: all cores)"    
     echo "  --mpi                  Enable MPI"
     echo "  --shared               Enable shared libraries"
     echo "  --verbose              Enable verbose output"
     echo "  --sanitize             Enable sanitizer"
     echo "  --clean                Cleans build directory"
     echo "  --help                 Display this help message"
+    echo "Timing logs: build/<configuration>/build-timings.log and build-timings-summary.txt"
     exit 0
 }
 
@@ -84,9 +85,13 @@ do
     --sanitize)
       sanitize=1
       ;; 
+    -j=*|--jobs=*)
+      parallel_jobs="${arg#*=}"
+      ;;      
     --clean)
       echo "Cleaning build directory..."
       rm -rf ./build
+      rm -rf ./local
       exit 0
       ;;
   esac
@@ -127,7 +132,7 @@ else
     CONFIG_FLAGS="${CONFIG_FLAGS} -DCMAKE_BUILD_TYPE=Debug"
 fi
 
-if [ -n "$prefix"]; then
+if [ -n "$prefix" ]; then
     echo "add prefix here ${prefix}"
     CONFIG_FLAGS="${CONFIG_FLAGS} -DCMAKE_INSTALL_PREFIX:PATH=${prefix}"
 fi
@@ -188,6 +193,32 @@ fi
 
 ecosim_build_dir="build/$BUILDDIR"
 
+# Time top-level phases and group compiler/linker launcher records by invocation.
+timing_python=$(command -v python3) || { echo "Build timing requires python3." >&2; exit 1; }
+timing_script="${ecosim_source_dir}/cmake/build_timer.py"
+export ECOSIM_BUILD_TIMING_LOG="${ecosim_source_dir}/${ecosim_build_dir}/build-timings.log"
+export ECOSIM_BUILD_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+timing_summary="${ecosim_source_dir}/${ecosim_build_dir}/build-timings-summary.txt"
+
+write_timing_summary() {
+  local build_status=$?
+  if [ -f "$ECOSIM_BUILD_TIMING_LOG" ]; then
+    "$timing_python" "$timing_script" report --log "$ECOSIM_BUILD_TIMING_LOG" \
+      --run-id "$ECOSIM_BUILD_RUN_ID" > "$timing_summary"
+    # Keep per-command details in the file; print only the phase summary.
+    sed '/^Compile\/link steps, slowest first:/,$d' "$timing_summary"
+    echo "Timing summary: $timing_summary"
+  fi
+  return "$build_status"
+}
+trap write_timing_summary EXIT
+
+timed_step() {
+  local phase=$1
+  shift
+  "$timing_python" "$timing_script" run --phase "$phase" -- "$@"
+}
+
 cmd_configure="${cmake_binary} \
   ${CONFIG_FLAGS}
   ${ecosim_source_dir}"
@@ -208,11 +239,11 @@ echo "cmd_configure: $cmd_configure"
 echo "building in: $ecosim_build_dir"
 
 #run the configure command
-cd ${ecosim_build_dir}
+cd "${ecosim_build_dir}" || exit 1
 #${cmd_configure}
 pwd
 
-${cmd_configure}
+timed_step configure "$cmake_binary" ${CONFIG_FLAGS} "$ecosim_source_dir"
 
 if [ $? -ne 0 ]; then
   echo "Configuration failed, aborting."
@@ -220,7 +251,7 @@ if [ $? -ne 0 ]; then
 fi
 
 #This does the build
-make -j ${parallel_jobs}
+timed_step build "$cmake_binary" --build . -j "${parallel_jobs}"
 
 if [ $? -ne 0 ]; then
   echo "Build failed, aborting."
@@ -228,7 +259,7 @@ if [ $? -ne 0 ]; then
 fi
 
 #Does the install
-make install
+timed_step install "$cmake_binary" --build . --target install -j "${parallel_jobs}"
 
 if [ $? -ne 0 ]; then
   echo "Install failed, aborting."
@@ -259,5 +290,5 @@ for file in $(find "$build_path" -type f); do
 done
 
 if [ "$regression_test" -eq 1 ]; then
-  make -C ./regression-tests test --no-print-directory ${MAKEFLAGS} compiler=gnu;
+  timed_step regression make -C ./regression-tests test --no-print-directory ${MAKEFLAGS} compiler=gnu;
 fi

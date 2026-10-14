@@ -1,8 +1,7 @@
 program restartTest
   use HistFileMod
   use RestartMod
-  use abortutils        , only : endrun
-  use fileUtil          , only : iulog
+  use abortutils        , only : endrun, iulog
   use data_kind_mod     , only : r8 => DAT_KIND_R8
   use EcoSIMCtrlMod     , only : etimer
   use GridConsts        , only : JZ,JS,MaxNumBranches,bounds,JP
@@ -10,7 +9,7 @@ implicit none
   character(len=*), parameter :: prognm=&
   __FILE__
 
-  character(len=36):: nmlfile
+  character(len=256):: nmlfile
 
   character(len=256) :: ioerror_msg
   integer :: rc, fu

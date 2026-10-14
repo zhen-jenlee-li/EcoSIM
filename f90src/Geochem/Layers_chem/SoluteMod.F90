@@ -532,7 +532,7 @@ module SoluteMod
 !     ZNSGL=NH4 diffusivity
 !     TortMicPM_vr=tortuosity
 !
-      DWNH4                    = 0.5*SQRT(SoluteDifusvty_vr(idg_NH3,L,NY,NX))*TortMicPM_vr(NPH,L,NY,NX)
+      DWNH4                    = 0.5*SQRT(SoluteDifusvtyT_vr(idg_NH3,L,NY,NX))*TortMicPM_vr(NPH,L,NY,NX)
       BandWidthNH4_vr(L,NY,NX) = AMIN1(ROWSpaceNH4_col(NY,NX),AMAX1(0.025,BandWidthNH4_vr(L,NY,NX))+DWNH4)
 !
 !     NH4 BAND DEPTH
@@ -636,7 +636,7 @@ module SoluteMod
 !     POSGL=H2PO4 diffusivity
 !     TortMicPM_vr=tortuosity
 !
-      DWPO4=0.5_r8*SQRT(SoluteDifusvty_vr(ids_H1PO4,L,NY,NX))*TortMicPM_vr(NPH,L,NY,NX)
+      DWPO4=0.5_r8*SQRT(SoluteDifusvtyT_vr(ids_H1PO4,L,NY,NX))*TortMicPM_vr(NPH,L,NY,NX)
       BandWidthPO4_vr(L,NY,NX)=AMIN1(ROWSpacePO4_col(NY,NX),BandWidthPO4_vr(L,NY,NX)+DWPO4)
 !
 !     PO4 BAND DEPTH
@@ -865,7 +865,7 @@ module SoluteMod
 !     ZOSGL=NO3 diffusivity
 !     TortMicPM_vr=tortuosity
 !
-      DWNO3=0.5_r8*SQRT(SoluteDifusvty_vr(ids_NO3,L,NY,NX))*TortMicPM_vr(NPH,L,NY,NX)
+      DWNO3=0.5_r8*SQRT(SoluteDifusvtyT_vr(ids_NO3,L,NY,NX))*TortMicPM_vr(NPH,L,NY,NX)
       BandWidthNO3_vr(L,NY,NX)=AMIN1(ROWSpaceNO3Band_col(NY,NX),BandWidthNO3_vr(L,NY,NX)+DWNO3)
 !
 !     NO3 BAND DEPTH
@@ -941,6 +941,8 @@ module SoluteMod
   subroutine UpdateSurfResidueSolute(NX,NY)
   implicit none
   integer, intent(in) :: NY,NX
+  character(len=*), parameter :: subname='UpdateSurfResidueSolute'
+
   real(r8) :: Al_3p_aque_mole_conc,CALX,Ca_2p_aque_mole_conc,CaX_conc
   real(r8) :: CCEC0,CO3_2e_aque_mole_conc
   real(r8) :: Fe_3p_aque_mole_conc,CFEX
@@ -961,9 +963,11 @@ module SoluteMod
   real(r8) :: H2PO4_1e_FePO4_dissol_flx,RXN4,XNH4_mole_conc
   real(r8) :: RHP1,RHP2,RN3S,RN4S,RFertReleaz_NH4,RFertReleaz_Urea
   real(r8) :: RFertReleaz_NH3,RFertReleaz_Urea2SoilNH3,RFertReleaz_NO3
-!     begin_execution
-!     BKVL=litter mass
-!
+
+  !     begin_execution
+  !     BKVL=litter mass
+  !
+  call PrintInfo('beg '//subname)
   IF(VLWatMicPM_vr(NPH,0,NY,NX).GT.ZEROS2(NY,NX))THEN
     BulkSoilMass=VLSoilMicPMass_vr(0,NY,NX)
 !
@@ -993,16 +997,16 @@ module SoluteMod
     ELSE
       ZNHUI_vr(0,NY,NX)=0._r8
     ENDIF
-!
-!     UREA CONCENTRATION AND HYDROLYSIS IN SURFACE RESIDUE
-!
-!     ZNHUFA=urea fertilizer
-!     Urea_mole_conc=concentration of urea fertilizer
-!     DFNSA=effect of microbial concentration on urea hydrolysis
-!     RFertReleaz_Urea=rate of urea hydrolysis
-!     RFertUreaSpecHydrol=specific rate constant for urea hydrolysis
-!     TSens4MicbGrwoth_vr=temperature effect on microbial activity from nitro.f
-!
+    !
+    !     UREA CONCENTRATION AND HYDROLYSIS IN SURFACE RESIDUE
+    !
+    !     ZNHUFA=urea fertilizer
+    !     Urea_mole_conc=concentration of urea fertilizer
+    !     DFNSA=effect of microbial concentration on urea hydrolysis
+    !     RFertReleaz_Urea=rate of urea hydrolysis
+    !     RFertUreaSpecHydrol=specific rate constant for urea hydrolysis
+    !     TSens4MicbGrwoth_vr=temperature effect on microbial activity from nitro.f
+    !
     IF(FertN_mole_soil_vr(ifert_N_urea,0,NY,NX).GT.ZEROS(NY,NX) &
       .AND. VLSoilMicPMass_vr(0,NY,NX).GT.ZEROS(NY,NX))THEN
       Urea_mole_conc = FertN_mole_soil_vr(ifert_N_urea,0,NY,NX)/VLSoilMicPMass_vr(0,NY,NX)
@@ -1194,10 +1198,10 @@ module SoluteMod
     CALX     = AMAX1(ZERO,Al_3p_aque_mole_conc)**0.333_r8
     CFEX     = AMAX1(ZERO,Fe_3p_aque_mole_conc)**0.333_r8
     CaX_conc = AMAX1(ZERO,Ca_2p_aque_mole_conc)**0.500_r8
-!
-!     EQUILIBRIUM X-CA CONCENTRATION FROM CEC AND CATION
-!     CONCENTRATIONS
-!
+    !
+    !     EQUILIBRIUM X-CA CONCENTRATION FROM CEC AND CATION
+    !     CONCENTRATIONS
+    !
     XCAX=CCEC0/(1.0_r8+GKC4_vr(NU_col(NY,NX),NY,NX)*NH4_1p_aque_mole_conc/CaX_conc &
       +GKCH_vr(NU_col(NY,NX),NY,NX)*H_1p_aque_mole_conc/CaX_conc &
       +GKCA_vr(NU_col(NY,NX),NY,NX)*CALX/CaX_conc &
@@ -1288,6 +1292,7 @@ module SoluteMod
       trcn_RprodChem_soil_vr(ids_H2PO4,0,NY,NX)   = trcn_RprodChem_soil_vr(ids_H2PO4,0,NY,NX)*patomw
 
 !9989  FORMAT(A8,2I4,12E12.4)
+  call PrintInfo('end '//subname)
   end subroutine UpdateSurfResidueSolute
 
 END module SoluteMod

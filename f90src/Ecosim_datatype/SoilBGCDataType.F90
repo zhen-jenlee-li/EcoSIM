@@ -48,12 +48,15 @@ implicit none
   real(r8),target,allocatable ::  SurfGasEmiss_flx_col(:,:,:)         !surface gas flux, including diffusion, ebullition, wet deposition and plant transp, [g d-2 h-1]
   real(r8),target,allocatable ::  SurfGasEmiss_all_flx_col(:,:,:)     !surface gas flux, including diffusion, ebullition, wet deposition, plant transp and disturbance, [g d-2 h-1]
   real(r8),target,allocatable ::  GasHydroLoss_flx_col(:,:,:)         !hydrological loss of volatile tracers, [g d-2 h-1]
+  real(r8),target,allocatable ::  trcnuts_hydrloss_flx_col(:,:,:)     !hydrological loss of nutrients, [g d-2 h-1]
   real(r8),target,allocatable ::  GasHydroSubsLoss_flx_col(:,:,:)     !subsurface hydrological loss of volatile tracers, [g d-2 h-1]
   real(r8),target,allocatable ::  GasHydroSurfLoss_flx_col(:,:,:)     !surface hydrological loss of volatile tracers, [g d-2 h-1]
   real(r8),target,allocatable ::  AmendC_CumYr_flx_col(:,:)           !total C amendment, [g d-2]
   real(r8),target,allocatable ::  GasHydroLoss_cumflx_col(:,:,:)     !cumulative hydrological loss of volatile tracers, [g d-2]
+  REAL(R8),target,allocatable :: Hydroloss_NH4_cumflx_col(:,:)       !cumulative hydrological loss of NH3, [gN d-2]
+  real(r8),target,allocatable :: Hydroloss_NO3_cumflx_col(:,:)       !cumulative hydrological loss of NO3, [gN d-2]
   real(r8),target,allocatable ::  FertN_Flx_CumYr_col(:,:)           !total fertilizer N amendment, [g d-2]
-  real(r8),target,allocatable ::  FerPFlx_CumYr_col(:,:)             !total fertilizer P amendment, [g d-2]
+  real(r8),target,allocatable ::  FerP_Flx_CumYr_col(:,:)             !total fertilizer P amendment, [g d-2]
   real(r8),target,allocatable ::  HydroSufDOCFlx_col(:,:)            !total surface DOC flux, [g d-2]
   real(r8),target,allocatable ::  HydroSubsDOCFlx_col(:,:)           !total subsurface DOC flux, [g d-2]
   real(r8),target,allocatable ::  LiterfalOrgM_col(:,:,:)            !total LitrFall C, [g d-2]
@@ -120,11 +123,13 @@ implicit none
   real(r8),target,allocatable :: RCH4Oxi_aero_vr(:,:,:)               !Aerobic CH4 oxidation rate, [gC d-2 h-1]
   real(r8),target,allocatable :: RCH4Oxi_ANMO_vr(:,:,:)               !Anaerobic CH4 oxidation rate,[gC d-2 h-1]
   real(r8),target,allocatable :: RFerment_vr(:,:,:)                   !Fermentation rate, [gC d-2 h-1]
-  real(r8),target,allocatable :: RNH3oxi_vr(:,:,:)                    !NH3 oxidation rate, [gN d-2 h-1]
-  real(r8),target,allocatable :: RN2ODeniProd_vr(:,:,:)              !denitrification N2O production, [gN d-2 h-1]
-  real(r8),target,allocatable :: RN2ONitProd_vr(:,:,:)               !Nitrification N2O produciton rate, [gN d-2 h-1]
+  real(r8),target,allocatable :: RNit_NO2toNO3_vr(:,:,:)              !Rate of NO2 oxidation to NO3, [gN d-2 h-1]
+  real(r8),target,allocatable :: RDen_NO3toNO2_vr(:,:,:)              !Rate of NO3 reduction to NO2 by denitrifcation, [gN d-2 h-1]
+  real(r8),target,allocatable :: RNit_NH3toNO2_vr(:,:,:)              !Rate of NH3 oxidation to NO2(-), [gN d-2 h-1]
+  real(r8),target,allocatable :: RDen_NO2toN2O_vr(:,:,:)              !denitrification N2O production, [gN d-2 h-1]
+  real(r8),target,allocatable :: RN2ONitProd_vr(:,:,:)                !Nitrification N2O produciton rate, [gN d-2 h-1]
   real(r8),target,allocatable :: RN2OChemoProd_vr(:,:,:)             !chemo N2O production, [gN d-2 h-1]
-  real(r8),target,allocatable :: RN2ORedux_vr(:,:,:)                 !N2O reduction into N2,  [gN d-2 h-1]
+  real(r8),target,allocatable :: RDen_N2OtoN2_vr(:,:,:)                 !N2O reduction into N2,  [gN d-2 h-1]
   real(r8),target,allocatable :: DOM_draing_col(:,:,:,:)             !DOM loss through subsurface drainage, [g d-2 h-1]
   real(r8),target,allocatable :: trcs_drainage_flx_col(:,:,:)        !solute loss through subsurface drainage, [g d-2 h-1]
   real(r8),target,allocatable :: DOM_SurfRunoff_flx_col(:,:,:,:)     !DOM loss through surface runoff, [g d-2 h-1]
@@ -192,15 +197,19 @@ implicit none
   allocate(RCH4Oxi_aero_vr(0:JZ,JY,JX)); RCH4Oxi_aero_vr=0._r8
   allocate(RCH4Oxi_ANMO_vr(0:JZ,JY,JX)); RCH4Oxi_ANMO_vr=0._r8
   allocate(RFerment_vr(0:JZ,JY,JX)); RFerment_vr=0._r8
-  allocate(RNH3oxi_vr(0:JZ,JY,JX)); RNH3oxi_vr=0._r8
-  allocate(RN2ODeniProd_vr(0:JZ,JY,JX)); RN2ODeniProd_vr=0._r8
+  allocate(RNit_NH3toNO2_vr(0:JZ,JY,JX)); RNit_NH3toNO2_vr=0._r8
+  allocate(RDen_NO2toN2O_vr(0:JZ,JY,JX)); RDen_NO2toN2O_vr=0._r8
+  allocate(RNit_NO2toNO3_vr(0:JZ,JY,JX)); RNit_NO2toNO3_vr=0._r8         
+  allocate(RDen_NO3toNO2_vr(0:JZ,JY,JX)); RDen_NO3toNO2_vr=0._r8        
+
   allocate(RN2ONitProd_vr(0:JZ,JY,JX)); RN2ONitProd_vr=0._r8
   allocate(RN2OChemoProd_vr(0:JZ,JY,JX)); RN2OChemoProd_vr=0._r8
-  allocate(RN2ORedux_vr(0:JZ,JY,JX));RN2ORedux_vr=0._r8
+  allocate(RDen_N2OtoN2_vr(0:JZ,JY,JX));RDen_N2OtoN2_vr=0._r8
   allocate(PH_vr(0:JZ,JY,JX));PH_vr(0:JZ,JY,JX)=0._r8
   allocate(CEC_vr(JZ,JY,JX));CEC_vr(JZ,JY,JX)=0._r8
   allocate(AEC_vr(JZ,JY,JX));AEC_vr(JZ,JY,JX)=0._r8
-
+  allocate(Hydroloss_NH4_cumflx_col(JY,JX)); Hydroloss_NH4_cumflx_col = 0._r8
+  allocate(Hydroloss_NO3_cumflx_col(JY,JX)); Hydroloss_NO3_cumflx_col = 0._R8
   allocate(REcoUptkSoilO2M_vr(60,0:JZ,JY,JX));REcoUptkSoilO2M_vr=0._r8
   allocate(GasHydroLoss_cumflx_col(idg_beg:idg_NH3,JY,JX)); GasHydroLoss_cumflx_col=0._r8
   allocate(GasHydroLoss_flx_col(idg_beg:idg_NH3,JY,JX)); GasHydroLoss_flx_col=0._r8
@@ -208,10 +217,11 @@ implicit none
   allocate(SurfGasEmiss_all_flx_col(idg_beg:idg_NH3,JY,JX)); SurfGasEmiss_all_flx_col=0._r8
   allocate(GasDiff2Surf_flx_col(idg_beg:idg_NH3,JY,JX)); GasDiff2Surf_flx_col=0._r8
   allocate(GasHydroSubsLoss_flx_col(idg_beg:idg_NH3,JY,JX)); GasHydroSubsLoss_flx_col=0._r8
+  allocate(trcnuts_hydrloss_flx_col(ids_nuts_beg:ids_nuts_end,JY,JX)); trcnuts_hydrloss_flx_col=0._r8
   allocate(GasHydroSurfLoss_flx_col(idg_beg:idg_NH3,JY,JX)); GasHydroSurfLoss_flx_col=0._r8
   allocate(AmendC_CumYr_flx_col(JY,JX));       AmendC_CumYr_flx_col=0._r8
   allocate(FertN_Flx_CumYr_col(JY,JX));      FertN_Flx_CumYr_col=0._r8
-  allocate(FerPFlx_CumYr_col(JY,JX));      FerPFlx_CumYr_col=0._r8
+  allocate(FerP_Flx_CumYr_col(JY,JX));      FerP_Flx_CumYr_col=0._r8
   allocate(HydroSufDOCFlx_col(JY,JX));       HydroSufDOCFlx_col=0._r8
   allocate(HydroSubsDOCFlx_col(JY,JX));       HydroSubsDOCFlx_col=0._r8
   allocate(LiterfalOrgM_col(NumPlantChemElms,JY,JX));       LiterfalOrgM_col=0._r8
@@ -286,6 +296,7 @@ implicit none
 
   implicit none
 
+  call destroy(trcnuts_hydrloss_flx_col)
   call destroy(trcs_solml_dribBeg_col)
   call destroy(ROQC4HeterMicActCmpK_vr)
   call destroy(RHydrolysisScalCmpK_vr)
@@ -317,11 +328,13 @@ implicit none
   call destroy(RCH4Oxi_aero_vr)
   CALL destroy(RCH4Oxi_ANMO_vr)
   call destroy(RFerment_vr)
-  call destroy(RNH3oxi_vr)
+  call destroy(RNit_NH3toNO2_vr)
   call destroy(RN2ONitProd_vr)  
-  call destroy(RN2ODeniProd_vr)
+  call destroy(RNit_NO2toNO3_vr)
+  call destroy(RDen_NO3toNO2_vr)
+  call destroy(RDen_NO2toN2O_vr)
   call destroy(RN2OChemoProd_vr)
-  call destroy(RN2ORedux_vr)
+  call destroy(RDen_N2OtoN2_vr)
   call destroy(trcg_gasml_vr)
   call destroy(CPO4B_vr)
   call destroy(OxyDecompLimiter_vr)
@@ -341,7 +354,7 @@ implicit none
   call destroy(REcoUptkSoilO2M_vr)
   call destroy(AmendC_CumYr_flx_col)
   call destroy(FertN_Flx_CumYr_col)
-  call destroy(FerPFlx_CumYr_col)
+  call destroy(FerP_Flx_CumYr_col)
   call destroy(HydroSufDOCFlx_col)
   call destroy(HydroSubsDOCFlx_col)
   call destroy(LiterfalOrgM_col)
@@ -382,6 +395,8 @@ implicit none
   call destroy(GasHydroSubsLoss_flx_col)
   call destroy(GasHydroSurfLoss_flx_col)
   call destroy(GasHydroLoss_cumflx_col)
+  call destroy(Hydroloss_NH4_cumflx_col)
+  call destroy(Hydroloss_NO3_cumflx_col)
   call destroy(trcs_VLN_vr)
   call destroy(trcg_ebu_flx_vr)
   call destroy(trcg_DisolEvap_Atm2Litr_flx)

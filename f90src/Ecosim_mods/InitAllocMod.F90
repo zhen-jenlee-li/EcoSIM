@@ -46,17 +46,19 @@ implicit none
   use SedimentDataType    , only : InitSedimentData
   use SoilWaterDataType   , only : InitSoilWater
   use PlantAPIData        , only : InitPlantAPIData
+  use RadiationDataMod    , only : InitRadiationData
   use PlantMgmtDataType  , only : InitPlantMngmtData
   use InitSOMBGCMod       , only : InitSOMBGC
   use EcoSIMConfig        , only : jcplx1 => jcplxcm1
   use TracerIDMod         , only : InitTracerIDs
   use SnowPhysData        , only : InitSnowPhysData
   use HydroThermData      , only : InitHydroThermData
-  use PerturbationMod     , only : InitSoilWarming
+  use EcosysWarmingMod     , only : InitSoilWarming
   use NumericalAuxMod     , only : InitNumericAux
   use WatsubMod           , only : InitWatsub
   use BalanceCheckDataType, only : InitBalanceCheckData
   use PlantBGCPars          , only : InitPlantTraitTable
+  use MLDataDiagType        , only : InitMLDataType
   use GridConsts  
   implicit none
   
@@ -119,7 +121,7 @@ implicit none
 
   call InitEcoSimSum
 
-  call InitRootData(pltpar%jroots)
+  call InitRootData(2)
 
   call InitClimForcData
 
@@ -141,6 +143,9 @@ implicit none
 
   call InitNumericAux()
 
+  call InitRadiationData
+  
+  call InitMLDataType
   if(salt_model)call InitSoluteProperty
 
   call InitSoilWarming
@@ -159,15 +164,15 @@ implicit none
   pltpar%JP1                     = JP
   pltpar%NumOfLeafAzimuthSectors = NumOfLeafAzimuthSectors
   pltpar%NumOfSkyAzimuthSects1   = NumOfSkyAzimuthSects
-  pltpar%NumLeafZenithSectors1   = NumLeafZenithSectors
+  pltpar%NumLeafInclinationClasses1   = NumLeafInclinationClasses
   pltpar%MaxNodesPerBranch1      = MaxNodesPerBranch
   pltpar%iprotein                = micpar%iprotein
   pltpar%icarbhyro               = micpar%icarbhyro
   pltpar%icellulos               = micpar%icellulos
   pltpar%ilignin                 = micpar%ilignin
-  pltpar%k_woody_litr            = micpar%k_woody_litr
-  pltpar%k_fine_litr             = micpar%k_fine_litr
-
+  pltpar%k_woody_comp            = micpar%k_woody_comp
+  pltpar%k_fine_comp             = micpar%k_fine_comp
+  
   !the following variable should be consistent with the soil bgc model
   pltpar%jcplx                = micpar%jcplx
   pltpar%NumOfPlantLitrCmplxs = micpar%NumOfPlantLitrCmplxs
@@ -177,7 +182,8 @@ implicit none
   pltpar%MaxNumRootAxes       = 10
   pltpar%NumGrowthStages      = 10
   pltpar%NumOfPlantMorphUnits = 7
-
+  pltpar%NMaxRootSegs = 10    !
+  NMaxRootSegs = pltpar%NMaxRootSegs
   MaxNumBranches       = pltpar%MaxNumBranches
   NumLitterGroups      = pltpar%NumLitterGroups
   MaxNumRootAxes       = pltpar%MaxNumRootAxes
